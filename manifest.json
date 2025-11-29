@@ -1,0 +1,16 @@
+{
+  "short_name": "IronTrack",
+  "name": "IronTrack Pro Gym Tracker",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2548/2548533.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "index.html",
+  "display": "standalone",
+  "theme_color": "#0f172a",
+  "background_color": "#0f172a",
+  "orientation": "portrait"
+}

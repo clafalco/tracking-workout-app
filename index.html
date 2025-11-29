@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>IronTrack Pro</title>
+    
+    <!-- PWA Configuration -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="IronTrack" />
+    
+    <!-- iOS Icon -->
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2548/2548533.png" />
+
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              // Use CSS variables for dynamic theming
+              primary: 'var(--color-primary)', 
+              secondary: 'var(--color-secondary)',
+              // Dynamic Backgrounds
+              dark: 'var(--bg-body)',      // Was #0f172a
+              surface: 'var(--bg-card)',   // Was #1e293b
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      :root {
+        /* Default Theme (Iron Dark) */
+        --color-primary: #6366f1;
+        --color-secondary: #10b981;
+        
+        /* Default Backgrounds (Dark) */
+        --bg-body: #0f172a;
+        --bg-card: #1e293b;
+        --text-main: #f8fafc;
+        --text-muted: #94a3b8;
+        --border-color: #334155;
+      }
+
+      body {
+        background-color: var(--bg-body);
+        color: var(--text-main);
+        overscroll-behavior-y: none;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+      
+      /* Global overrides for common utility classes to respect theme */
+      .text-white { color: var(--text-main) !important; }
+      .text-gray-400 { color: var(--text-muted) !important; }
+      .text-gray-500 { color: var(--text-muted) !important; }
+      .border-slate-700 { border-color: var(--border-color) !important; }
+      .bg-dark { background-color: var(--bg-body) !important; }
+      .bg-surface { background-color: var(--bg-card) !important; }
+
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      
+      /* Stile per il display degli errori critici */
+      #error-display { display: none; padding: 20px; color: #ef4444; background: #1e1e1e; position: absolute; top:0; left:0; width:100%; height:100vh; z-index: 9999; overflow: auto; }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.0",
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+  }
+}
+</script>
+</head>
+  <body>
+    <!-- Div per mostrare errori critici di avvio se React fallisce -->
+    <div id="error-display"></div>
+
+    <div id="root">
+      <!-- Loading Spinner visibile finché React non parte -->
+      <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; color: #6366f1;">
+        <svg class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        <p style="margin-top: 20px; font-family: sans-serif;">Caricamento IronTrack...</p>
+      </div>
+    </div>
+
+    <noscript>È necessario abilitare JavaScript per usare questa app.</noscript>
+    
+    <!-- Entry point dell'applicazione React -->
+    <script type="module" src="/index.tsx"></script>
+    
+    <!-- Script di emergenza per catturare errori globali -->
+    <script>
+      window.onerror = function(message, source, lineno, colno, error) {
+        var root = document.getElementById('root');
+        var errorDiv = document.getElementById('error-display');
+        console.error("Global Error:", message);
+        if(errorDiv && message.toString().toLowerCase().includes("uncaught")) {
+            if(root) root.style.display = 'none';
+            errorDiv.style.display = 'block';
+            errorDiv.innerHTML = '<h2>Errore Critico di Avvio</h2><p>' + message + '</p><p style="font-size:12px; color:#999">Prova a ricaricare la pagina o svuotare la cache.</p>';
+        }
+      };
+    </script>
+  </body>
+</html>
