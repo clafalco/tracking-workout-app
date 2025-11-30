@@ -168,8 +168,10 @@ const Statistics: React.FC = () => {
       <div className="space-y-6">
         
         {/* --- SECTION 1: SINGLE EXERCISE PROGRESSION --- */}
-        <div className="bg-surface p-5 rounded-xl border border-slate-700 shadow-lg relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-1 h-full bg-primary"></div>
+        {/* REMOVED overflow-hidden to allow dropdown to show */}
+        <div className="bg-surface p-5 rounded-xl border border-slate-700 shadow-lg relative">
+            {/* Added rounded-l-xl to match parent border radius since overflow is visible */}
+            <div className="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-xl"></div>
             <h3 className="text-lg font-semibold mb-4 text-gray-200 flex items-center gap-2">
                 <TrendingUp size={18} className="text-primary"/> Analisi Progresso
             </h3>

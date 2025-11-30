@@ -26,15 +26,40 @@ interface RestTimerState {
     totalTime: number;
 }
 
+// --- GLOBAL AUDIO CONTEXT (Singleton for iOS) ---
+let globalAudioCtx: AudioContext | any = null;
+
+const getAudioContext = () => {
+    if (!globalAudioCtx) {
+        const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+        if (Ctx) {
+            globalAudioCtx = new Ctx();
+        }
+    }
+    return globalAudioCtx;
+};
+
+// Helper to unlock AudioContext on user interaction
+const unlockAudioContext = async () => {
+    const ctx = getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+        try {
+            await ctx.resume();
+        } catch(e) { console.error("Resume failed", e); }
+    }
+}
+
 // Helper for Audio generation
-const playTimerSound = (type: 'start' | 'finish' | 'tick' | 'rest_finish', volume: number) => {
+const playTimerSound = async (type: 'start' | 'finish' | 'tick' | 'rest_finish', volume: number) => {
     try {
         if (volume <= 0) return; // Mute if volume is 0
 
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContext) return;
+        const ctx = getAudioContext();
+        if (!ctx) return;
         
-        const ctx = new AudioContext();
+        // NOTE: We don't call resume() here because this might be inside a timer loop.
+        // It must be unlocked via unlockAudioContext() on click events first.
+
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
 
@@ -202,6 +227,9 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
     // Load Volume
     setVolume(getVolume());
 
+    // Initialize/Unlock Audio on mount (though user interaction is preferred)
+    getAudioContext();
+
     // WAKE LOCK LOGIC
     const enableWakeLock = async () => {
         if (getWakeLockEnabled() && 'wakeLock' in navigator) {
@@ -352,6 +380,9 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
   }, [restTimer.isActive, volume]);
 
   const updateSet = (exIndex: number, setIndex: number, field: keyof CompletedSet, value: number | boolean) => {
+    // Unlock audio on interaction
+    unlockAudioContext();
+
     const newExercises = [...log.exercises];
     newExercises[exIndex].sets[setIndex] = {
       ...newExercises[exIndex].sets[setIndex],
@@ -388,6 +419,9 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
 
   // Timer Controls
   const toggleTimer = (exIndex: number, setIndex: number, currentDuration: number) => {
+      // Unlock Audio context on click
+      unlockAudioContext();
+
       if (activeTimer?.exIndex === exIndex && activeTimer?.setIndex === setIndex) {
           setActiveTimer(prev => {
               if (prev && !prev.isRunning) playTimerSound('start', volume); 
@@ -710,7 +744,10 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
 
             <div className="flex flex-col w-full max-w-xs gap-4">
                 <button 
-                    onClick={() => setRestTimer(prev => ({...prev, timeLeft: prev.timeLeft + 30, totalTime: prev.totalTime + 30}))}
+                    onClick={() => {
+                        unlockAudioContext(); // Unlock on interaction
+                        setRestTimer(prev => ({...prev, timeLeft: prev.timeLeft + 30, totalTime: prev.totalTime + 30}));
+                    }}
                     className="bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-2xl font-bold text-lg border border-slate-700 transition-all flex items-center justify-center gap-2"
                 >
                     <Plus size={24}/> Aggiungi 30s

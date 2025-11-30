@@ -1,6 +1,7 @@
 
 
 import { Exercise, Routine, WorkoutLog, MuscleGroup, ExerciseType, BodyMeasurement, ThemeType, RoutineTemplate, Language } from '../types';
+import { DEFAULT_EXERCISES } from './defaultData';
 
 const EXERCISE_KEY = 'iron_track_exercises';
 const ROUTINE_KEY = 'iron_track_routines';
@@ -40,6 +41,22 @@ export const deleteExercise = (id: string): Exercise[] => {
   saveExercises(updated);
   return updated;
 };
+
+// --- NEW FUNCTION: LOAD DEFAULTS ---
+export const loadDefaultExercises = (): number => {
+    const current = getExercises();
+    // Create a set of lowercased trimmed names to prevent duplicates
+    const currentNames = new Set(current.map(e => e.name.trim().toLowerCase()));
+    
+    const newToAdd = DEFAULT_EXERCISES.filter(def => !currentNames.has(def.name.trim().toLowerCase()));
+    
+    if (newToAdd.length === 0) return 0;
+
+    const updated = [...current, ...newToAdd];
+    saveExercises(updated);
+    return newToAdd.length;
+};
+// -----------------------------------
 
 export const getRoutines = (): Routine[] => {
   const stored = localStorage.getItem(ROUTINE_KEY);

@@ -1,27 +1,47 @@
 
+
 import React, { useRef, useState, useEffect } from 'react';
-import { getAllData, restoreData, FullBackupData, saveTheme, getTheme, saveWakeLockEnabled, getWakeLockEnabled, getVolume, saveVolume, getLanguage, saveLanguage } from '../services/storageService';
+import { getAllData, restoreData, FullBackupData, saveTheme, getTheme, saveWakeLockEnabled, getWakeLockEnabled, getVolume, saveVolume, getLanguage, saveLanguage, loadDefaultExercises } from '../services/storageService';
 import { t, getGuideContent } from '../services/translationService';
 import { ThemeType, Language } from '../types';
-import { Download, RefreshCw, Database, Key, Eye, EyeOff, Save, Check, Palette, Smartphone, Zap, Sun, Volume2, Globe, HelpCircle, X, ShieldCheck, BookOpen } from 'lucide-react';
+import { Download, RefreshCw, Database, Key, Eye, EyeOff, Save, Check, Palette, Smartphone, Zap, Sun, Volume2, Globe, HelpCircle, X, ShieldCheck, BookOpen, Library } from 'lucide-react';
 
-// Helper audio temporaneo per testare il volume nelle impostazioni
-const playTestSound = (volume: number) => {
+// GLOBAL AUDIO CONTEXT FOR IOS SUPPORT
+// iOS richiede un unico contesto riutilizzato, non uno nuovo per ogni suono.
+let globalAudioCtx: AudioContext | any = null;
+
+const getAudioContext = () => {
+    if (!globalAudioCtx) {
+        const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+        if (Ctx) {
+            globalAudioCtx = new Ctx();
+        }
+    }
+    return globalAudioCtx;
+};
+
+// Helper audio robusto per iOS
+const playTestSound = async (volume: number) => {
     try {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContext) return;
-        const ctx = new AudioContext();
+        const ctx = getAudioContext();
+        if (!ctx) return;
+
+        // CRITICO PER IOS: Se il contesto è sospeso, ripristinalo (deve avvenire in un evento click)
+        if (ctx.state === 'suspended') {
+            await ctx.resume();
+        }
+
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain);
         gain.connect(ctx.destination);
         
         osc.frequency.value = 880;
-        gain.gain.value = volume * 0.1; // Scale down slightly to match app mix
+        gain.gain.value = volume * 0.1; 
         
         osc.start();
         osc.stop(ctx.currentTime + 0.1);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("Audio Test Error", e); }
 };
 
 interface SettingsProps {
@@ -42,6 +62,9 @@ const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
   const [wakeLockEnabled, setWakeLockEnabled] = useState(true);
   const [volume, setVolume] = useState(1.0);
   const [language, setLanguage] = useState<Language>('it');
+
+  // Import Feedback State
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   // Guide Modal
   const [showGuide, setShowGuide] = useState(false);
@@ -92,6 +115,13 @@ const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
   const handleTestSound = () => {
       playTestSound(volume);
   }
+  
+  const handleLoadDefaults = () => {
+      // Rimosso window.confirm per evitare blocchi su mobile PWA
+      const count = loadDefaultExercises();
+      setImportMsg(`Fatto! Aggiunti ${count} nuovi esercizi.`);
+      setTimeout(() => setImportMsg(null), 4000);
+  };
 
   const handleDownloadBackup = () => {
     const data = getAllData();
@@ -132,11 +162,12 @@ const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
             ? "I dati del backup verranno uniti a quelli attuali. Elementi esistenti verranno aggiornati, nuovi elementi verranno aggiunti. Continuare?"
             : "ATTENZIONE: Questa operazione CANCELLERÀ tutti i dati attuali su questo dispositivo e li sostituirà con quelli del backup. Sei sicuro?";
 
+        // Per operazioni distruttive come il restore totale, proviamo a mantenere il confirm, 
+        // ma per il merge potremmo evitarlo. Qui lo lascio perché è critico, ma se l'utente ha problemi anche qui,
+        // dovremo fare un modale custom.
         if (confirm(message)) {
             restoreData(data, restoreMode);
             alert(restoreMode === 'merge' ? "Sincronizzazione completata!" : "Ripristino completato!");
-            // Force reload via prop is handled by parent if needed, but for data restore we might want a full reload
-            // However, to be safe on this hosting, better use the same update trick or just warn user
             if (onLanguageChange) onLanguageChange();
         }
       } catch (err) {
@@ -314,6 +345,22 @@ const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
             </div>
             
             <div className="space-y-4">
+                {/* NEW: Load Defaults Button */}
+                <div className="flex flex-col gap-2">
+                    <button 
+                        onClick={handleLoadDefaults}
+                        className="w-full bg-slate-700 hover:bg-slate-600 text-gray-200 py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-colors text-sm border border-slate-600"
+                    >
+                        <Library size={18} />
+                        Carica Database Esercizi (Default)
+                    </button>
+                    {importMsg && (
+                        <div className="text-center text-emerald-400 text-sm font-bold bg-emerald-500/10 py-2 rounded-lg border border-emerald-500/20 animate-in fade-in slide-in-from-top-1">
+                            {importMsg}
+                        </div>
+                    )}
+                </div>
+
                 <button 
                     onClick={handleDownloadBackup}
                     className="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-colors font-medium border border-slate-600"
@@ -355,7 +402,7 @@ const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
         {/* Info Section */}
         <div className="bg-surface p-6 rounded-xl border border-slate-700">
             <h3 className="text-lg font-bold text-white mb-2">IronTrack Pro</h3>
-            <p className="text-sm text-gray-400">Versione 1.3.2</p>
+            <p className="text-sm text-gray-400">Versione 1.3.3</p>
             <div className="mt-4 text-xs text-gray-500">
                 PWA Offline-First.
                 <br/>Build Date: {new Date().toLocaleDateString()}
