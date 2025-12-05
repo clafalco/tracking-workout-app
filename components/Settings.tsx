@@ -402,7 +402,7 @@ const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
         {/* Info Section */}
         <div className="bg-surface p-6 rounded-xl border border-slate-700">
             <h3 className="text-lg font-bold text-white mb-2">IronTrack Pro</h3>
-            <p className="text-sm text-gray-400">Versione 1.3.3</p>
+            <p className="text-sm text-gray-400">Versione 1.4.0</p>
             <div className="mt-4 text-xs text-gray-500">
                 PWA Offline-First.
                 <br/>Build Date: {new Date().toLocaleDateString()}

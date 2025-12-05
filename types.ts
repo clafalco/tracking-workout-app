@@ -20,11 +20,13 @@ export enum ExerciseType {
 
 export type ThemeType = 'iron' | 'ocean' | 'fire' | 'light';
 export type Language = 'it' | 'en' | 'fr' | 'de';
+export type SetType = 'normal' | 'warmup' | 'failure' | 'drop';
 
 export interface Exercise {
   id: string;
   name: string;
-  muscleGroup: MuscleGroup;
+  muscleGroup: MuscleGroup; // Gruppo Primario
+  secondaryMuscles?: MuscleGroup[]; // Gruppi Secondari (Opzionale)
   type: ExerciseType;
   notes?: string;
   link?: string; // URL video o tutorial
@@ -75,6 +77,8 @@ export interface CompletedSet {
   weight: number;
   durationSeconds: number;
   completed: boolean;
+  type?: SetType; // Tipologia di set
+  rpe?: number; // Rate of Perceived Exertion (1-10)
 }
 
 export interface WorkoutLogExercise {

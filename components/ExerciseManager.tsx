@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Exercise, MuscleGroup, ExerciseType } from '../types';
 import { getExercises, saveExercises, deleteExercise } from '../services/storageService';
 import { MUSCLE_GROUP_COLORS } from '../constants';
-import { Trash2, Plus, Edit2, Search, Filter, X, AlertTriangle, ExternalLink, StickyNote, Link as LinkIcon, Clock } from 'lucide-react';
+import { Trash2, Plus, Edit2, Search, Filter, X, AlertTriangle, ExternalLink, StickyNote, Link as LinkIcon, Clock, Layers } from 'lucide-react';
 
 const ExerciseManager: React.FC = () => {
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -14,6 +14,7 @@ const ExerciseManager: React.FC = () => {
   const [currentExercise, setCurrentExercise] = useState<Partial<Exercise>>({
     name: '',
     muscleGroup: MuscleGroup.Chest,
+    secondaryMuscles: [],
     type: ExerciseType.Weighted,
     notes: '',
     link: '',
@@ -42,7 +43,7 @@ const ExerciseManager: React.FC = () => {
     saveExercises(updatedList);
     setExercises(updatedList);
     setIsModalOpen(false);
-    setCurrentExercise({ name: '', muscleGroup: MuscleGroup.Chest, type: ExerciseType.Weighted, notes: '', link: '', defaultRestSeconds: 60 });
+    setCurrentExercise({ name: '', muscleGroup: MuscleGroup.Chest, secondaryMuscles: [], type: ExerciseType.Weighted, notes: '', link: '', defaultRestSeconds: 60 });
   };
 
   const confirmDelete = () => {
@@ -55,16 +56,25 @@ const ExerciseManager: React.FC = () => {
   };
 
   const openEdit = (ex: Exercise) => {
-    setCurrentExercise(ex);
+    setCurrentExercise({...ex, secondaryMuscles: ex.secondaryMuscles || []});
     setShowDeleteConfirm(false);
     setIsModalOpen(true);
   };
 
   const openNew = () => {
-      setCurrentExercise({ name: '', muscleGroup: MuscleGroup.Chest, type: ExerciseType.Weighted, notes: '', link: '', defaultRestSeconds: 60 });
+      setCurrentExercise({ name: '', muscleGroup: MuscleGroup.Chest, secondaryMuscles: [], type: ExerciseType.Weighted, notes: '', link: '', defaultRestSeconds: 60 });
       setShowDeleteConfirm(false);
       setIsModalOpen(true);
   }
+
+  const toggleSecondaryMuscle = (group: MuscleGroup) => {
+      const current = currentExercise.secondaryMuscles || [];
+      if (current.includes(group)) {
+          setCurrentExercise({...currentExercise, secondaryMuscles: current.filter(g => g !== group)});
+      } else {
+          setCurrentExercise({...currentExercise, secondaryMuscles: [...current, group]});
+      }
+  };
 
   const filteredExercises = exercises.filter(e => {
     const matchesSearch = e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -130,8 +140,18 @@ const ExerciseManager: React.FC = () => {
                     <h3 className="font-semibold text-lg text-white group-hover:text-primary transition-colors truncate">{ex.name}</h3>
                     {ex.notes && <StickyNote size={12} className="text-gray-500 shrink-0" />}
                 </div>
-                <div className="flex items-center gap-2 text-sm text-gray-400 truncate">
-                     <span>{ex.muscleGroup} • {ex.type}</span>
+                <div className="flex flex-wrap items-center gap-2 text-sm text-gray-400">
+                     <span>{ex.muscleGroup}</span>
+                     
+                     {ex.secondaryMuscles && ex.secondaryMuscles.length > 0 && (
+                         <span className="text-xs text-gray-500">
+                            + {ex.secondaryMuscles.join(', ')}
+                         </span>
+                     )}
+                     
+                     <span className="text-gray-600">•</span>
+                     <span>{ex.type}</span>
+                     
                      {ex.defaultRestSeconds && <span className="flex items-center gap-0.5 bg-slate-800 px-1 rounded text-[10px]"><Clock size={10}/> {Math.floor(ex.defaultRestSeconds / 60)}:{(ex.defaultRestSeconds % 60).toString().padStart(2, '0')} Rest</span>}
                 </div>
               </div>
@@ -205,7 +225,7 @@ const ExerciseManager: React.FC = () => {
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="block text-sm text-gray-400 mb-1">Gruppo</label>
+                            <label className="block text-sm text-gray-400 mb-1">Gruppo Primario</label>
                             <select 
                             value={currentExercise.muscleGroup}
                             onChange={e => setCurrentExercise({...currentExercise, muscleGroup: e.target.value as MuscleGroup})}
@@ -228,6 +248,33 @@ const ExerciseManager: React.FC = () => {
                                 <option key={t} value={t}>{t}</option>
                             ))}
                             </select>
+                        </div>
+                    </div>
+
+                    <div>
+                         <label className="flex items-center gap-2 text-sm text-gray-400 mb-2">
+                            <Layers size={14}/> Gruppi Secondari (Opzionale)
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                            {Object.values(MuscleGroup).map(g => {
+                                const isSelected = currentExercise.secondaryMuscles?.includes(g);
+                                const isPrimary = currentExercise.muscleGroup === g;
+                                if (isPrimary) return null; // Don't show primary in secondary list
+
+                                return (
+                                    <button
+                                        key={g}
+                                        onClick={() => toggleSecondaryMuscle(g)}
+                                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                                            isSelected 
+                                                ? 'bg-primary text-white border-primary' 
+                                                : 'bg-dark text-gray-400 border-slate-700 hover:border-gray-500'
+                                        }`}
+                                    >
+                                        {g}
+                                    </button>
+                                )
+                            })}
                         </div>
                     </div>
 

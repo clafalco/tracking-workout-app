@@ -1,8 +1,9 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { getWorkoutLogs, deleteWorkoutLog, getExercises } from '../services/storageService';
-import { WorkoutLog, Exercise } from '../types';
-import { Calendar, Trash2, Clock, Dumbbell, AlertTriangle } from 'lucide-react';
+import { WorkoutLog, Exercise, SetType } from '../types';
+import { Calendar, Trash2, Clock, Dumbbell, AlertTriangle, Info } from 'lucide-react';
 
 const History: React.FC = () => {
   const [logs, setLogs] = useState<WorkoutLog[]>([]);
@@ -23,6 +24,15 @@ const History: React.FC = () => {
   }
 
   const getExerciseName = (id: string) => exercises.find(e => e.id === id)?.name || 'Esercizio';
+
+  const getTypeBadge = (type?: SetType) => {
+      switch(type) {
+          case 'warmup': return <span className="text-[10px] font-bold text-yellow-500 border border-yellow-500/30 px-1 rounded">W</span>;
+          case 'failure': return <span className="text-[10px] font-bold text-red-500 border border-red-500/30 px-1 rounded">F</span>;
+          case 'drop': return <span className="text-[10px] font-bold text-purple-400 border border-purple-500/30 px-1 rounded">D</span>;
+          default: return null;
+      }
+  }
 
   return (
     <div className="p-4 pb-24">
@@ -51,15 +61,21 @@ const History: React.FC = () => {
               </button>
             </div>
             
-            <div className="pl-2 mt-3 pt-3 border-t border-slate-700/50">
-                <div className="flex flex-wrap gap-2">
-                    {log.exercises.slice(0, 3).map((ex, i) => (
-                        <span key={i} className="text-xs text-gray-300 bg-slate-700 px-2 py-1 rounded-md">
-                            {getExerciseName(ex.exerciseId)}
-                        </span>
-                    ))}
-                    {log.exercises.length > 3 && <span className="text-xs text-gray-500 py-1">+{log.exercises.length - 3} altri</span>}
-                </div>
+            <div className="pl-2 mt-3 pt-3 border-t border-slate-700/50 space-y-2">
+                 {log.exercises.map((ex, i) => (
+                    <div key={i} className="text-sm">
+                        <div className="text-gray-300 font-medium mb-1">{getExerciseName(ex.exerciseId)}</div>
+                        <div className="flex flex-wrap gap-2">
+                            {ex.sets.filter(s => s.completed).map((s, idx) => (
+                                <div key={idx} className="bg-slate-800 px-2 py-1 rounded text-xs text-gray-400 flex items-center gap-1 border border-slate-700">
+                                    {getTypeBadge(s.type)}
+                                    <span>{s.weight}kg x {s.reps}</span>
+                                    {s.rpe && s.rpe > 0 && <span className="text-[9px] text-gray-500">RPE{s.rpe}</span>}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                 ))}
             </div>
           </div>
         ))}

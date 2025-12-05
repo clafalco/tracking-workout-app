@@ -1,9 +1,10 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Routine, RoutineDay, WorkoutLog, WorkoutLogExercise, CompletedSet, Exercise, MuscleGroup, ExerciseType, RoutineExercise } from '../types';
+import { Routine, RoutineDay, WorkoutLog, WorkoutLogExercise, CompletedSet, Exercise, MuscleGroup, ExerciseType, RoutineExercise, SetType } from '../types';
 import { getExercises, saveWorkoutLog, saveExercises, getWorkoutLogs, getWakeLockEnabled, getVolume } from '../services/storageService';
 import { generateExerciseAdvice } from '../services/geminiService';
-import { Timer, HelpCircle, ChevronLeft, Save, Play, Pause, Square, RotateCcw, Check, Plus, Search, X, Filter, ArrowLeft, Minus, SkipForward, History, ExternalLink, StickyNote, AlignLeft, Minimize2 } from 'lucide-react';
+import { Timer, HelpCircle, ChevronLeft, Save, Play, Pause, Square, RotateCcw, Check, Plus, Search, X, Filter, ArrowLeft, Minus, SkipForward, History, ExternalLink, StickyNote, AlignLeft, Minimize2, Flame, AlertCircle, Layers } from 'lucide-react';
 import { MUSCLE_GROUP_COLORS } from '../constants';
 
 interface ActiveWorkoutProps {
@@ -307,7 +308,9 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                     reps: isDuration ? 0 : targetVal || 0,
                     weight: parseFloat(ex.targetWeight?.split('-')[0] || '0') || 0,
                     durationSeconds: isDuration ? targetVal || 0 : 0,
-                    completed: false
+                    completed: false,
+                    type: 'normal',
+                    rpe: 0
                 }))
              };
         });
@@ -379,7 +382,7 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
       }
   }, [restTimer.isActive, volume]);
 
-  const updateSet = (exIndex: number, setIndex: number, field: keyof CompletedSet, value: number | boolean) => {
+  const updateSet = (exIndex: number, setIndex: number, field: keyof CompletedSet, value: any) => {
     // Unlock audio on interaction
     unlockAudioContext();
 
@@ -402,10 +405,26 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
     }
   };
 
+  const toggleSetType = (exIndex: number, setIndex: number) => {
+      unlockAudioContext();
+      const currentType = log.exercises[exIndex].sets[setIndex].type || 'normal';
+      let nextType: SetType = 'normal';
+      
+      switch (currentType) {
+          case 'normal': nextType = 'warmup'; break;
+          case 'warmup': nextType = 'failure'; break;
+          case 'failure': nextType = 'drop'; break;
+          case 'drop': nextType = 'normal'; break;
+          default: nextType = 'normal';
+      }
+      
+      updateSet(exIndex, setIndex, 'type', nextType);
+  };
+
   const addSet = (exIndex: number) => {
       const newExercises = [...log.exercises];
       const prevSet = newExercises[exIndex].sets[newExercises[exIndex].sets.length - 1];
-      newExercises[exIndex].sets.push({...prevSet, completed: false}); 
+      newExercises[exIndex].sets.push({...prevSet, completed: false, type: 'normal', rpe: 0}); 
       setLog({ ...log, exercises: newExercises });
   }
 
@@ -499,7 +518,9 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
               reps: 0,
               weight: 0,
               durationSeconds: 0,
-              completed: false
+              completed: false,
+              type: 'normal',
+              rpe: 0
           }))
       };
       setLog(prev => ({...prev, exercises: [...prev.exercises, newLogEx]}));
@@ -531,6 +552,25 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
       e.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       e.muscleGroup.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Helper for Row Styling based on Set Type
+  const getRowStyle = (type: SetType = 'normal') => {
+      switch (type) {
+          case 'warmup': return 'bg-yellow-500/10 border-l-2 border-l-yellow-500';
+          case 'failure': return 'bg-red-500/10 border-l-2 border-l-red-500';
+          case 'drop': return 'bg-purple-500/10 border-l-2 border-l-purple-500';
+          default: return 'border-l-2 border-l-transparent';
+      }
+  };
+
+  const getSetBadge = (type: SetType = 'normal', index: number) => {
+      switch (type) {
+          case 'warmup': return <span className="text-yellow-500 font-bold text-xs">W</span>;
+          case 'failure': return <span className="text-red-500 font-bold text-xs">F</span>;
+          case 'drop': return <span className="text-purple-400 font-bold text-xs">D</span>;
+          default: return <span className="text-gray-400 font-mono">{index + 1}</span>;
+      }
+  };
 
   if (!activeRoutineDay) return <div className="p-10 text-center text-white">Caricamento allenamento...</div>;
 
@@ -569,18 +609,30 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                                 <div className={`w-2 h-2 rounded-full ${MUSCLE_GROUP_COLORS[dbEx.muscleGroup]}`}></div>
                                 <h3 className="font-bold text-lg text-white">{dbEx.name}</h3>
                             </div>
-                            <div className="text-xs text-gray-400 flex items-center gap-3 flex-wrap">
-                                {isTimed ? (
-                                    <span>Target: {formatTime(parseInt(routineEx.targetReps || '0'))}</span>
-                                ) : (
-                                    <span>Target: {routineEx.targetSets || 0} x {routineEx.targetReps || '-'}</span>
+                            
+                            {/* EXERCISE INFO: TARGETS + SECONDARY MUSCLES */}
+                            <div className="flex flex-col gap-1">
+                                {/* Secondary Muscles */}
+                                {dbEx.secondaryMuscles && dbEx.secondaryMuscles.length > 0 && (
+                                    <div className="text-[10px] text-gray-400 flex items-center gap-1">
+                                        <Layers size={10} className="text-gray-500"/>
+                                        + {dbEx.secondaryMuscles.join(', ')}
+                                    </div>
                                 )}
-                                {routineEx.targetWeight && <span>@ {routineEx.targetWeight}kg</span>}
-                                {routineEx.targetRestSeconds && (
-                                  <span className="flex items-center gap-1 text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">
-                                      <Timer size={10} /> {formatTime(routineEx.targetRestSeconds)} Rest
-                                  </span>
-                                )}
+                                
+                                <div className="text-xs text-gray-400 flex items-center gap-3 flex-wrap">
+                                    {isTimed ? (
+                                        <span>Target: {formatTime(parseInt(routineEx.targetReps || '0'))}</span>
+                                    ) : (
+                                        <span>Target: {routineEx.targetSets || 0} x {routineEx.targetReps || '-'}</span>
+                                    )}
+                                    {routineEx.targetWeight && <span>@ {routineEx.targetWeight}kg</span>}
+                                    {routineEx.targetRestSeconds && (
+                                    <span className="flex items-center gap-1 text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">
+                                        <Timer size={10} /> {formatTime(routineEx.targetRestSeconds)} Rest
+                                    </span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                         <div className="flex gap-2">
@@ -611,18 +663,27 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                     </div>
 
                     <div className="p-2">
-                        <div className="grid grid-cols-10 gap-2 mb-2 text-xs text-gray-500 uppercase font-bold text-center">
+                        <div className="grid grid-cols-12 gap-2 mb-2 text-xs text-gray-500 uppercase font-bold text-center">
                             <div className="col-span-1">Set</div>
                             <div className="col-span-4">Kg</div>
                             <div className="col-span-4">{isTimed ? 'Tempo' : 'Reps'}</div>
+                            <div className="col-span-2">RPE</div>
                             <div className="col-span-1"></div>
                         </div>
                         {exLog.sets.map((set, sIndex) => {
                             const isTimerActive = activeTimer?.exIndex === i && activeTimer?.setIndex === sIndex;
+                            const rowStyle = getRowStyle(set.type);
                             
                             return (
-                                <div key={sIndex} className={`grid grid-cols-10 gap-2 mb-2 items-center transition-opacity ${isTimerActive ? 'bg-slate-800/50 rounded p-1 -mx-1' : ''} ${set.completed ? 'opacity-60' : 'opacity-100'}`}>
-                                    <div className="col-span-1 text-center font-mono text-gray-400 bg-dark rounded py-2">{sIndex + 1}</div>
+                                <div key={sIndex} className={`grid grid-cols-12 gap-2 mb-2 items-center transition-all rounded p-1 ${rowStyle} ${set.completed ? 'opacity-60' : 'opacity-100'}`}>
+                                    {/* Set Type Toggle */}
+                                    <button 
+                                        onClick={() => toggleSetType(i, sIndex)}
+                                        className="col-span-1 text-center bg-dark rounded py-2 hover:bg-slate-700 transition-colors flex items-center justify-center h-10 border border-slate-600"
+                                    >
+                                        {getSetBadge(set.type, sIndex)}
+                                    </button>
+
                                     <div className="col-span-4">
                                         <NumberStepper 
                                             value={set.weight || 0}
@@ -683,6 +744,19 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                                             </div>
                                         )}
                                     </div>
+                                    
+                                    {/* RPE Input */}
+                                    <div className="col-span-2">
+                                        <input 
+                                            type="number"
+                                            min="0" max="10"
+                                            value={set.rpe || ''}
+                                            onChange={(e) => updateSet(i, sIndex, 'rpe', parseFloat(e.target.value))}
+                                            placeholder="-"
+                                            className="w-full bg-dark text-white text-center h-10 rounded-lg border border-slate-600 focus:outline-none focus:border-primary text-sm"
+                                        />
+                                    </div>
+
                                     <div className="col-span-1 flex justify-center">
                                         <button 
                                             onClick={() => updateSet(i, sIndex, 'completed', !set.completed)}
