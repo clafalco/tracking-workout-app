@@ -141,7 +141,8 @@ export const applyTheme = (theme: ThemeType) => {
         root.style.setProperty('--bg-body', '#f8fafc'); // Slate 50
         root.style.setProperty('--bg-card', '#ffffff'); // White
         root.style.setProperty('--text-main', '#0f172a'); // Slate 900
-        root.style.setProperty('--text-muted', '#64748b'); // Slate 500
+        // Darker grey for muted text to ensure high contrast against white
+        root.style.setProperty('--text-muted', '#475569'); // Slate 600
         root.style.setProperty('--border-color', '#cbd5e1'); // Slate 300
         
         root.style.setProperty('--color-primary', '#4f46e5'); // Indigo 600 (Darker for contrast)

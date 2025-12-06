@@ -1,10 +1,8 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Routine, RoutineDay, WorkoutLog, WorkoutLogExercise, CompletedSet, Exercise, MuscleGroup, ExerciseType, RoutineExercise, SetType } from '../types';
 import { getExercises, saveWorkoutLog, saveExercises, getWorkoutLogs, getWakeLockEnabled, getVolume } from '../services/storageService';
 import { generateExerciseAdvice } from '../services/geminiService';
-import { Timer, HelpCircle, ChevronLeft, Save, Play, Pause, Square, RotateCcw, Check, Plus, Search, X, Filter, ArrowLeft, Minus, SkipForward, History, ExternalLink, StickyNote, AlignLeft, Minimize2, Flame, AlertCircle, Layers } from 'lucide-react';
+import { Timer, HelpCircle, ChevronLeft, Save, Play, Pause, Square, Check, Plus, Search, X, ArrowLeft, Minus, SkipForward, History, ExternalLink, StickyNote, AlignLeft, Minimize2, Layers, ChevronUp, ChevronDown } from 'lucide-react';
 import { MUSCLE_GROUP_COLORS } from '../constants';
 
 interface ActiveWorkoutProps {
@@ -58,8 +56,10 @@ const playTimerSound = async (type: 'start' | 'finish' | 'tick' | 'rest_finish',
         const ctx = getAudioContext();
         if (!ctx) return;
         
-        // NOTE: We don't call resume() here because this might be inside a timer loop.
-        // It must be unlocked via unlockAudioContext() on click events first.
+        // Ensure resumes on timer ticks if previously suspended
+        if (ctx.state === 'suspended') {
+             ctx.resume();
+        }
 
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -123,10 +123,14 @@ interface NumberStepperProps {
     placeholder?: string;
     className?: string;
     isTime?: boolean; // New prop for Time formatting
+    layout?: 'horizontal' | 'vertical'; // New prop for layout
 }
 
-const NumberStepper: React.FC<NumberStepperProps> = ({ value, onChange, step = 1, min = 0, suffix = '', placeholder = '0', className = '', isTime = false }) => {
+const NumberStepper: React.FC<NumberStepperProps> = ({ value, onChange, step = 1, min = 0, suffix = '', placeholder = '0', className = '', isTime = false, layout = 'horizontal' }) => {
     const handleDelta = (delta: number) => {
+        // IMPORTANT: Unlock audio context on stepper interaction
+        unlockAudioContext(); 
+        
         const current = value || 0;
         const next = Math.max(min, current + delta);
         // Fix floating point issues
@@ -136,42 +140,67 @@ const NumberStepper: React.FC<NumberStepperProps> = ({ value, onChange, step = 1
 
     // Helper to format seconds into M:SS
     const formatTimeDisplay = (totalSeconds: number) => {
-        if (!totalSeconds) return '';
+        if (!totalSeconds && totalSeconds !== 0) return '';
         const m = Math.floor(totalSeconds / 60);
         const s = totalSeconds % 60;
         return `${m}:${s < 10 ? '0' : ''}${s}`;
     };
 
+    const displayValue = isTime ? (
+        <span className="text-white text-sm font-mono font-bold">
+            {value > 0 || value === 0 ? (suffix ? `${value}${suffix}` : formatTimeDisplay(value)) : <span className="text-gray-600 font-sans font-normal text-xs">{placeholder}</span>}
+        </span>
+    ) : (
+        <input 
+            type="number" 
+            className="w-full bg-transparent text-white text-center text-sm focus:outline-none p-0 m-0 appearance-none font-bold"
+            value={value === 0 ? '' : value}
+            placeholder={placeholder}
+            onChange={(e) => onChange(parseFloat(e.target.value))}
+            // Hide arrows in Webkit
+            style={{ MozAppearance: 'textfield' }} 
+        />
+    );
+
+    if (layout === 'vertical') {
+        return (
+            <div className={`flex flex-col items-center justify-between bg-slate-800 rounded-lg border border-slate-600 shadow-sm overflow-hidden ${className}`}>
+                <button 
+                    onClick={() => handleDelta(step)}
+                    className="w-full h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-slate-700 active:bg-primary active:text-white transition-colors"
+                >
+                    <ChevronUp size={18} />
+                </button>
+                <div className="w-full bg-dark border-y border-slate-600 py-1 text-center px-1">
+                    {displayValue}
+                </div>
+                <button 
+                    onClick={() => handleDelta(-step)}
+                    className="w-full h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-slate-700 active:bg-primary active:text-white transition-colors"
+                >
+                    <ChevronDown size={18} />
+                </button>
+            </div>
+        );
+    }
+
+    // Default Horizontal Layout
     return (
         <div className={`flex items-center bg-dark rounded-lg border border-slate-600 h-10 overflow-hidden ${className}`}>
             <button 
                 onClick={() => handleDelta(-step)}
-                className="w-8 h-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-gray-400 border-r border-slate-700"
+                className="w-10 h-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-gray-400 border-r border-slate-700"
             >
-                <Minus size={14} />
+                <Minus size={16} />
             </button>
             <div className="flex-1 px-1 text-center relative flex items-center justify-center">
-                {isTime ? (
-                    <span className="text-white text-sm font-mono font-bold">
-                        {value > 0 ? formatTimeDisplay(value) : <span className="text-gray-600 font-sans font-normal text-xs">{placeholder}</span>}
-                    </span>
-                ) : (
-                    <input 
-                        type="number" 
-                        className="w-full bg-transparent text-white text-center text-sm focus:outline-none p-0 m-0 appearance-none"
-                        value={value === 0 ? '' : value}
-                        placeholder={placeholder}
-                        onChange={(e) => onChange(parseFloat(e.target.value))}
-                        // Hide arrows in Webkit
-                        style={{ MozAppearance: 'textfield' }} 
-                    />
-                )}
+                {displayValue}
             </div>
             <button 
                 onClick={() => handleDelta(step)}
-                className="w-8 h-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-gray-400 border-l border-slate-700"
+                className="w-10 h-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-gray-400 border-l border-slate-700"
             >
-                <Plus size={14} />
+                <Plus size={16} />
             </button>
         </div>
     );
@@ -666,7 +695,7 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                         <div className="grid grid-cols-12 gap-2 mb-2 text-xs text-gray-500 uppercase font-bold text-center">
                             <div className="col-span-1">Set</div>
                             <div className="col-span-4">Kg</div>
-                            <div className="col-span-4">{isTimed ? 'Tempo' : 'Reps'}</div>
+                            <div className="col-span-4">{isTimed ? 'Tempo (M : S)' : 'Reps'}</div>
                             <div className="col-span-2">RPE</div>
                             <div className="col-span-1"></div>
                         </div>
@@ -696,33 +725,52 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                                         {isTimed ? (
                                             <div className="flex items-center gap-1">
                                                 {isTimerActive ? (
-                                                     <div className="flex-1 flex items-center justify-between bg-dark border border-primary rounded px-2 py-1 h-10">
+                                                     <div className="flex-1 flex items-center justify-between bg-dark border border-primary rounded px-2 py-1 h-14">
                                                         <span className="font-mono font-bold text-primary text-lg">
                                                             {formatTime(activeTimer.timeLeft)}
                                                         </span>
-                                                        <div className="flex gap-1">
-                                                            <button onClick={() => toggleTimer(i, sIndex, 0)} className="text-yellow-500">
-                                                                <Pause size={16} fill="currentColor"/>
+                                                        <div className="flex gap-1 flex-col justify-center">
+                                                            <button onClick={() => toggleTimer(i, sIndex, 0)} className="text-yellow-500 p-1">
+                                                                <Pause size={14} fill="currentColor"/>
                                                             </button>
-                                                            <button onClick={stopTimer} className="text-red-500">
-                                                                <Square size={16} fill="currentColor"/>
+                                                            <button onClick={stopTimer} className="text-red-500 p-1">
+                                                                <Square size={14} fill="currentColor"/>
                                                             </button>
                                                         </div>
                                                      </div>
                                                 ) : (
-                                                    <div className="flex-1 flex gap-1 items-center">
-                                                        <div className="flex-1">
+                                                    <div className="flex-1 flex gap-1 items-center h-14">
+                                                        <div className="flex gap-1 flex-1 h-full">
+                                                            {/* SPLIT STEPPER FOR MINUTES AND SECONDS WITH VERTICAL LAYOUT */}
                                                             <NumberStepper 
-                                                                value={set.durationSeconds || 0}
-                                                                onChange={(val) => updateSet(i, sIndex, 'durationSeconds', val)}
-                                                                step={10}
-                                                                placeholder="Tempo"
+                                                                value={Math.floor((set.durationSeconds || 0) / 60)}
+                                                                onChange={(val) => {
+                                                                    const currentSecs = (set.durationSeconds || 0) % 60;
+                                                                    updateSet(i, sIndex, 'durationSeconds', (val * 60) + currentSecs);
+                                                                }}
+                                                                step={1}
+                                                                placeholder="M"
                                                                 isTime={true}
+                                                                layout="vertical"
+                                                                className="w-1/2 h-full"
+                                                            />
+                                                            <NumberStepper 
+                                                                value={(set.durationSeconds || 0) % 60}
+                                                                onChange={(val) => {
+                                                                    const validSec = Math.min(59, val);
+                                                                    const currentMins = Math.floor((set.durationSeconds || 0) / 60);
+                                                                    updateSet(i, sIndex, 'durationSeconds', (currentMins * 60) + validSec);
+                                                                }}
+                                                                step={5}
+                                                                placeholder="S"
+                                                                isTime={true}
+                                                                layout="vertical"
+                                                                className="w-1/2 h-full"
                                                             />
                                                         </div>
                                                         <button 
                                                             onClick={() => toggleTimer(i, sIndex, set.durationSeconds || 60)}
-                                                            className="bg-emerald-600 hover:bg-emerald-500 text-white w-8 h-10 rounded-lg flex items-center justify-center shrink-0"
+                                                            className="bg-emerald-600 hover:bg-emerald-500 text-white w-8 h-full rounded-lg flex items-center justify-center shrink-0"
                                                         >
                                                             <Play size={14} fill="currentColor" />
                                                         </button>

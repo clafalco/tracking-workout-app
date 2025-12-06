@@ -1,10 +1,49 @@
-
 import React, { useState, useEffect } from 'react';
 import { Routine, RoutineDay, RoutineExercise, Exercise, MuscleGroup, ExerciseType, RoutineTemplate } from '../types';
 import { getRoutines, saveRoutines, getExercises, saveExercises, getRoutineTemplates, saveRoutineTemplates } from '../services/storageService';
 import { Plus, Trash2, ChevronDown, ChevronUp, Info, Wand2, Clock, Search, Filter, X, Save, ArrowLeft, GripVertical, ArrowUp, ArrowDown, AlertTriangle, BookTemplate, Copy, PlayCircle, Timer } from 'lucide-react';
 import { suggestRoutineStructure } from '../services/geminiService';
 import { MUSCLE_GROUP_COLORS } from '../constants';
+
+// --- NEW COMPONENT: Vertical Stepper for Routine Manager ---
+interface VerticalStepperProps {
+    value: number;
+    onChange: (val: number) => void;
+    step?: number;
+    max?: number;
+    placeholder?: string;
+}
+
+const VerticalStepper: React.FC<VerticalStepperProps> = ({ value, onChange, step = 1, max = 999, placeholder = '00' }) => {
+    const handleDelta = (delta: number) => {
+        const current = value || 0;
+        let next = Math.max(0, current + delta);
+        if (max) next = Math.min(max, next);
+        onChange(next);
+    };
+
+    return (
+        <div className="flex flex-col items-center justify-between bg-slate-800 rounded-lg border border-slate-600 overflow-hidden h-16 w-10 shadow-sm">
+            <button type="button" onClick={() => handleDelta(step)} className="w-full flex-1 hover:bg-slate-700 active:bg-primary/50 flex items-center justify-center transition-colors text-gray-400 hover:text-white">
+                <ChevronUp size={14}/>
+            </button>
+            <div className="w-full bg-dark border-y border-slate-600 h-6 flex items-center justify-center">
+                <input 
+                    type="number" 
+                    className="w-full bg-transparent text-white text-center text-xs font-mono font-bold outline-none p-0 appearance-none"
+                    value={value > 0 || value === 0 ? value.toString().padStart(2, '0') : ''}
+                    placeholder={placeholder}
+                    onChange={(e) => onChange(parseInt(e.target.value) || 0)}
+                    style={{ MozAppearance: 'textfield' }}
+                />
+            </div>
+            <button type="button" onClick={() => handleDelta(-step)} className="w-full flex-1 hover:bg-slate-700 active:bg-primary/50 flex items-center justify-center transition-colors text-gray-400 hover:text-white">
+                <ChevronDown size={14}/>
+            </button>
+        </div>
+    );
+};
+// ------------------------------------------------------------
 
 const RoutineManager: React.FC = () => {
   const [activeView, setActiveView] = useState<'routines' | 'templates'>('routines');
@@ -433,34 +472,28 @@ const RoutineManager: React.FC = () => {
                                               
                                               {/* CONDITIONAL INPUT: TIME OR REPS */}
                                               {isDuration ? (
-                                                  <div className="flex items-center gap-1 bg-slate-800 rounded p-1 px-2 border border-slate-700">
-                                                      <Timer size={12} className="text-gray-400"/>
-                                                      <input 
-                                                          placeholder="M" 
-                                                          type="number" 
-                                                          className="w-9 bg-transparent text-center text-sm outline-none border-b border-transparent focus:border-primary appearance-none m-0 p-0" 
-                                                          value={rex.targetReps ? Math.floor(parseInt(rex.targetReps) / 60) : ''} 
-                                                          onChange={(e) => {
-                                                              const m = parseInt(e.target.value) || 0;
+                                                  <div className="flex items-center gap-1 bg-slate-800 rounded p-1 px-1 border border-slate-700">
+                                                      <Timer size={12} className="text-gray-400 mr-1"/>
+                                                      <VerticalStepper 
+                                                          value={rex.targetReps ? Math.floor(parseInt(rex.targetReps) / 60) : 0} 
+                                                          onChange={(val) => {
                                                               const currentSeconds = parseInt(rex.targetReps || '0');
                                                               const s = currentSeconds % 60;
-                                                              updateDayExercise(day.id, rex.id, 'targetReps', (m * 60 + s).toString());
+                                                              updateDayExercise(day.id, rex.id, 'targetReps', (val * 60 + s).toString());
                                                           }} 
-                                                          style={{ MozAppearance: 'textfield' }}
+                                                          placeholder="M"
                                                       />
                                                       <span className="text-xs text-gray-500">:</span>
-                                                      <input 
-                                                          placeholder="S" 
-                                                          type="number" 
-                                                          className="w-9 bg-transparent text-center text-sm outline-none border-b border-transparent focus:border-primary appearance-none m-0 p-0" 
-                                                          value={rex.targetReps ? parseInt(rex.targetReps) % 60 : ''} 
-                                                          onChange={(e) => {
-                                                              const s = Math.min(59, parseInt(e.target.value) || 0);
+                                                      <VerticalStepper 
+                                                          value={rex.targetReps ? parseInt(rex.targetReps) % 60 : 0} 
+                                                          onChange={(val) => {
+                                                              const s = Math.min(59, val);
                                                               const currentSeconds = parseInt(rex.targetReps || '0');
                                                               const m = Math.floor(currentSeconds / 60);
                                                               updateDayExercise(day.id, rex.id, 'targetReps', (m * 60 + s).toString());
                                                           }} 
-                                                          style={{ MozAppearance: 'textfield' }}
+                                                          max={59}
+                                                          placeholder="S"
                                                       />
                                                   </div>
                                               ) : (
@@ -475,33 +508,27 @@ const RoutineManager: React.FC = () => {
                                               <span className="text-xs text-gray-500">@</span>
                                               <input placeholder="Kg" className="w-16 bg-slate-800 p-1 rounded text-center text-sm focus:ring-1 focus:ring-primary outline-none" value={rex.targetWeight || ''} onChange={(e) => updateDayExercise(day.id, rex.id, 'targetWeight', e.target.value)} />
                                               
-                                              <div className="flex items-center gap-1 bg-slate-800 rounded p-1 px-2">
-                                                <Clock size={12} className="text-gray-400"/>
-                                                {/* Split Min/Sec Input for better UX */}
-                                                <input 
-                                                    placeholder="M" 
-                                                    type="number" 
-                                                    className="w-9 bg-transparent text-center text-sm outline-none border-b border-transparent focus:border-primary appearance-none m-0 p-0" 
-                                                    value={rex.targetRestSeconds ? Math.floor(rex.targetRestSeconds / 60) : ''} 
-                                                    onChange={(e) => {
-                                                        const m = parseInt(e.target.value) || 0;
+                                              <div className="flex items-center gap-1 bg-slate-800 rounded p-1 px-1 border border-slate-700 ml-1">
+                                                <Clock size={12} className="text-gray-400 mr-1"/>
+                                                {/* Vertical Steppers for Rest Time */}
+                                                <VerticalStepper 
+                                                    value={rex.targetRestSeconds ? Math.floor(rex.targetRestSeconds / 60) : 0} 
+                                                    onChange={(val) => {
                                                         const s = (rex.targetRestSeconds || 0) % 60;
-                                                        updateDayExercise(day.id, rex.id, 'targetRestSeconds', m * 60 + s);
+                                                        updateDayExercise(day.id, rex.id, 'targetRestSeconds', val * 60 + s);
                                                     }} 
-                                                    style={{ MozAppearance: 'textfield' }}
+                                                    placeholder="M"
                                                 />
                                                 <span className="text-xs">:</span>
-                                                <input 
-                                                    placeholder="S" 
-                                                    type="number" 
-                                                    className="w-9 bg-transparent text-center text-sm outline-none border-b border-transparent focus:border-primary appearance-none m-0 p-0" 
-                                                    value={rex.targetRestSeconds ? (rex.targetRestSeconds % 60).toString().padStart(2, '0') : ''} 
-                                                    onChange={(e) => {
-                                                        const s = Math.min(59, parseInt(e.target.value) || 0);
+                                                <VerticalStepper 
+                                                    value={rex.targetRestSeconds ? (rex.targetRestSeconds % 60) : 0} 
+                                                    onChange={(val) => {
+                                                        const s = Math.min(59, val);
                                                         const m = Math.floor((rex.targetRestSeconds || 0) / 60);
                                                         updateDayExercise(day.id, rex.id, 'targetRestSeconds', m * 60 + s);
                                                     }} 
-                                                    style={{ MozAppearance: 'textfield' }}
+                                                    max={59}
+                                                    placeholder="S"
                                                 />
                                               </div>
 

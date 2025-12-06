@@ -26,7 +26,7 @@ const playTestSound = async (volume: number) => {
         const ctx = getAudioContext();
         if (!ctx) return;
 
-        // CRITICO PER IOS: Se il contesto è sospeso, ripristinalo (deve avvenire in un evento click)
+        // CRITICO PER IOS: Resume deve essere chiamato dentro l'evento click
         if (ctx.state === 'suspended') {
             await ctx.resume();
         }
@@ -37,10 +37,10 @@ const playTestSound = async (volume: number) => {
         gain.connect(ctx.destination);
         
         osc.frequency.value = 880;
-        gain.gain.value = volume * 0.1; 
+        gain.gain.value = volume * 0.5; // Alzato leggermente per il test
         
         osc.start();
-        osc.stop(ctx.currentTime + 0.1);
+        osc.stop(ctx.currentTime + 0.2); // Durata leggermente più lunga
     } catch (e) { console.error("Audio Test Error", e); }
 };
 
@@ -113,11 +113,11 @@ const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
   };
 
   const handleTestSound = () => {
+      // Per iOS: questo deve essere scatenato direttamente dal click
       playTestSound(volume);
   }
   
   const handleLoadDefaults = () => {
-      // Rimosso window.confirm per evitare blocchi su mobile PWA
       const count = loadDefaultExercises();
       setImportMsg(`Fatto! Aggiunti ${count} nuovi esercizi.`);
       setTimeout(() => setImportMsg(null), 4000);
@@ -157,22 +157,18 @@ const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
         if (!data.timestamp || (!data.exercises && !data.logs)) {
             throw new Error("Formato file non valido");
         }
-
-        const message = restoreMode === 'merge' 
-            ? "I dati del backup verranno uniti a quelli attuali. Elementi esistenti verranno aggiornati, nuovi elementi verranno aggiunti. Continuare?"
-            : "ATTENZIONE: Questa operazione CANCELLERÀ tutti i dati attuali su questo dispositivo e li sostituirà con quelli del backup. Sei sicuro?";
-
-        // Per operazioni distruttive come il restore totale, proviamo a mantenere il confirm, 
-        // ma per il merge potremmo evitarlo. Qui lo lascio perché è critico, ma se l'utente ha problemi anche qui,
-        // dovremo fare un modale custom.
-        if (confirm(message)) {
-            restoreData(data, restoreMode);
-            alert(restoreMode === 'merge' ? "Sincronizzazione completata!" : "Ripristino completato!");
-            if (onLanguageChange) onLanguageChange();
-        }
+        
+        // Eseguiamo direttamente il restore senza confirm nativo per evitare problemi mobile
+        restoreData(data, restoreMode);
+        setImportMsg(restoreMode === 'merge' ? "Sync Completata!" : "Ripristino Completato!");
+        setTimeout(() => setImportMsg(null), 3000);
+        
+        if (onLanguageChange) onLanguageChange();
+        
       } catch (err) {
-        alert("Errore durante la lettura del file. Assicurati che sia un backup valido di IronTrack.");
         console.error(err);
+        setImportMsg("Errore nel file di backup.");
+        setTimeout(() => setImportMsg(null), 3000);
       }
     };
     reader.readAsText(file);
