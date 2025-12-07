@@ -93,6 +93,7 @@ export interface WorkoutLog {
   routineDayId?: string;
   exercises: WorkoutLogExercise[];
   durationMinutes: number;
+  calories?: number; // Stima calorie bruciate
 }
 
 export interface BodyMeasurement {

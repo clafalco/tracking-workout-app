@@ -10,7 +10,7 @@ import Statistics from './components/Statistics';
 import BodyMeasurements from './components/BodyMeasurements';
 import MaxCalculator from './components/MaxCalculator';
 import Settings from './components/Settings';
-import { getTheme, applyTheme } from './services/storageService';
+import { getTheme, applyTheme, getActiveSession, getRoutines } from './services/storageService';
 import { t } from './services/translationService';
 import { LayoutDashboard, Dumbbell, ClipboardList, History as HistoryIcon, BarChart2, Scale } from 'lucide-react';
 
@@ -24,6 +24,22 @@ const App: React.FC = () => {
   useEffect(() => {
     // Apply saved theme on boot
     applyTheme(getTheme());
+
+    // --- AUTO-RESTORE ACTIVE SESSION (Fix for Background refresh) ---
+    const savedSession = getActiveSession();
+    if (savedSession) {
+        // Se c'è una sessione salvata, proviamo a ripristinarla
+        // Cerchiamo la routine completa se possibile, altrimenti passiamo null (ActiveWorkout usa activeRoutineDay dal salvataggio)
+        let routineToPass: Routine | null = null;
+        if (savedSession.routineId) {
+            const routines = getRoutines();
+            routineToPass = routines.find(r => r.id === savedSession.routineId) || null;
+        }
+        setWorkoutSession({ 
+            routine: routineToPass, 
+            dayId: savedSession.dayId || null 
+        });
+    }
   }, []);
 
   const handleLanguageUpdate = () => {

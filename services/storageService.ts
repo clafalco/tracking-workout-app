@@ -1,6 +1,5 @@
 
-
-import { Exercise, Routine, WorkoutLog, MuscleGroup, ExerciseType, BodyMeasurement, ThemeType, RoutineTemplate, Language } from '../types';
+import { Exercise, Routine, WorkoutLog, MuscleGroup, ExerciseType, BodyMeasurement, ThemeType, RoutineTemplate, Language, RoutineDay } from '../types';
 import { DEFAULT_EXERCISES } from './defaultData';
 
 const EXERCISE_KEY = 'iron_track_exercises';
@@ -12,6 +11,7 @@ const THEME_KEY = 'iron_track_theme';
 const WAKE_LOCK_KEY = 'iron_track_wake_lock';
 const VOLUME_KEY = 'iron_track_volume';
 const LANGUAGE_KEY = 'iron_track_language';
+const ACTIVE_SESSION_KEY = 'iron_track_active_session'; // New key for session persistence
 
 // Initial seed data
 const INITIAL_EXERCISES: Exercise[] = [
@@ -108,6 +108,43 @@ export const deleteMeasurement = (id: string): BodyMeasurement[] => {
   saveMeasurements(updated);
   return updated;
 };
+
+// --- ACTIVE SESSION PERSISTENCE ---
+export interface ActiveSessionData {
+    log: WorkoutLog;
+    activeRoutineDay: RoutineDay;
+    startTime: number;
+    routineId?: string;
+    dayId?: string;
+    activeTimer?: {
+        exIndex: number;
+        setIndex: number;
+        initialTime: number;
+        targetEndTime: number | null; // If running, this is the timestamp when it ends
+        remainingTime: number | null; // If paused, this is what's left
+        isRunning: boolean;
+    } | null;
+    restTimer?: {
+        isActive: boolean;
+        targetEndTime: number | null;
+        remainingTime: number | null;
+        totalTime: number;
+    };
+}
+
+export const saveActiveSession = (data: ActiveSessionData) => {
+    localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(data));
+};
+
+export const getActiveSession = (): ActiveSessionData | null => {
+    const stored = localStorage.getItem(ACTIVE_SESSION_KEY);
+    return stored ? JSON.parse(stored) : null;
+};
+
+export const clearActiveSession = () => {
+    localStorage.removeItem(ACTIVE_SESSION_KEY);
+};
+// ----------------------------------
 
 // --- SETTINGS (Theme, Wake Lock, Volume, Language) ---
 

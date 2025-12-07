@@ -1,48 +1,9 @@
-
-
 import React, { useRef, useState, useEffect } from 'react';
 import { getAllData, restoreData, FullBackupData, saveTheme, getTheme, saveWakeLockEnabled, getWakeLockEnabled, getVolume, saveVolume, getLanguage, saveLanguage, loadDefaultExercises } from '../services/storageService';
 import { t, getGuideContent } from '../services/translationService';
+import { playTimerSound } from '../services/audioService'; // Import shared audio service
 import { ThemeType, Language } from '../types';
 import { Download, RefreshCw, Database, Key, Eye, EyeOff, Save, Check, Palette, Smartphone, Zap, Sun, Volume2, Globe, HelpCircle, X, ShieldCheck, BookOpen, Library } from 'lucide-react';
-
-// GLOBAL AUDIO CONTEXT FOR IOS SUPPORT
-// iOS richiede un unico contesto riutilizzato, non uno nuovo per ogni suono.
-let globalAudioCtx: AudioContext | any = null;
-
-const getAudioContext = () => {
-    if (!globalAudioCtx) {
-        const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-        if (Ctx) {
-            globalAudioCtx = new Ctx();
-        }
-    }
-    return globalAudioCtx;
-};
-
-// Helper audio robusto per iOS
-const playTestSound = async (volume: number) => {
-    try {
-        const ctx = getAudioContext();
-        if (!ctx) return;
-
-        // CRITICO PER IOS: Resume deve essere chiamato dentro l'evento click
-        if (ctx.state === 'suspended') {
-            await ctx.resume();
-        }
-
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        
-        osc.frequency.value = 880;
-        gain.gain.value = volume * 0.5; // Alzato leggermente per il test
-        
-        osc.start();
-        osc.stop(ctx.currentTime + 0.2); // Durata leggermente più lunga
-    } catch (e) { console.error("Audio Test Error", e); }
-};
 
 interface SettingsProps {
     onLanguageChange?: () => void;
@@ -113,8 +74,8 @@ const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
   };
 
   const handleTestSound = () => {
-      // Per iOS: questo deve essere scatenato direttamente dal click
-      playTestSound(volume);
+      // Usa il servizio centralizzato per testare il suono
+      playTimerSound('test', volume);
   }
   
   const handleLoadDefaults = () => {
@@ -398,7 +359,7 @@ const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
         {/* Info Section */}
         <div className="bg-surface p-6 rounded-xl border border-slate-700">
             <h3 className="text-lg font-bold text-white mb-2">IronTrack Pro</h3>
-            <p className="text-sm text-gray-400">Versione 1.4.0</p>
+            <p className="text-sm text-gray-400">Versione 1.5.0</p>
             <div className="mt-4 text-xs text-gray-500">
                 PWA Offline-First.
                 <br/>Build Date: {new Date().toLocaleDateString()}

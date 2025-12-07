@@ -1,10 +1,11 @@
 
+
 import React, { useEffect, useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area } from 'recharts';
 import { getWorkoutLogs, getExercises } from '../services/storageService';
 import { WorkoutLog, Exercise, MuscleGroup, ExerciseType } from '../types';
 import { MUSCLE_GROUP_COLORS } from '../constants';
-import { Trophy, Target, Search, TrendingUp, X, Dumbbell } from 'lucide-react';
+import { Trophy, Target, Search, TrendingUp, X, Dumbbell, Flame } from 'lucide-react';
 
 // Mapping tailwind classes to hex codes for Recharts
 const COLOR_MAP: Record<string, string> = {
@@ -155,6 +156,9 @@ const Statistics: React.FC = () => {
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 5); // Top 5 heaviest lifts
   
+  // 5. Total Calories
+  const totalCalories = logs.reduce((acc, log) => acc + (log.calories || 0), 0);
+
   // Filtering for selector
   const filteredExercises = exercises.filter(e => 
       e.type === ExerciseType.Weighted &&
@@ -301,6 +305,15 @@ const Statistics: React.FC = () => {
                     {Math.round(logs.reduce((acc, l) => acc + l.durationMinutes, 0) / 60)}<span className="text-lg text-gray-500">h</span>
                 </div>
                 <div className="text-xs text-gray-400 uppercase tracking-wider mt-1">Tempo Totale</div>
+            </div>
+             <div className="col-span-2 bg-surface p-4 rounded-xl border border-slate-700 text-center shadow-lg flex items-center justify-center gap-4">
+                <div className="p-3 bg-orange-500/10 rounded-full">
+                    <Flame className="text-orange-500" size={24} />
+                </div>
+                <div className="text-left">
+                    <div className="text-2xl font-bold text-white">{totalCalories} <span className="text-sm font-normal text-gray-500">kcal</span></div>
+                    <div className="text-xs text-gray-400 uppercase tracking-wider">Calorie Totali Stimate</div>
+                </div>
             </div>
         </div>
 

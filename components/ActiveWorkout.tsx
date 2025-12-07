@@ -1,9 +1,12 @@
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Routine, RoutineDay, WorkoutLog, WorkoutLogExercise, CompletedSet, Exercise, MuscleGroup, ExerciseType, RoutineExercise, SetType } from '../types';
-import { getExercises, saveWorkoutLog, saveExercises, getWorkoutLogs, getWakeLockEnabled, getVolume } from '../services/storageService';
+import { getExercises, saveWorkoutLog, saveExercises, getWorkoutLogs, getWakeLockEnabled, getVolume, saveActiveSession, getActiveSession, clearActiveSession, getMeasurements } from '../services/storageService';
 import { generateExerciseAdvice } from '../services/geminiService';
-import { Timer, HelpCircle, ChevronLeft, Save, Play, Pause, Square, Check, Plus, Search, X, ArrowLeft, Minus, SkipForward, History, ExternalLink, StickyNote, AlignLeft, Minimize2, Layers, ChevronUp, ChevronDown } from 'lucide-react';
+import { Timer, HelpCircle, ChevronLeft, Save, Play, Pause, Square, Check, Plus, Search, X, ArrowLeft, Minus, SkipForward, History, ExternalLink, StickyNote, AlignLeft, Minimize2, Layers, ChevronUp, ChevronDown, Calculator, Heart, Bluetooth, Activity } from 'lucide-react';
 import { MUSCLE_GROUP_COLORS } from '../constants';
+import { playTimerSound, getAudioContext, unlockAudioContext } from '../services/audioService';
 
 interface ActiveWorkoutProps {
   routine: Routine | null;
@@ -11,107 +14,23 @@ interface ActiveWorkoutProps {
   onFinish: () => void;
 }
 
+// Update ActiveTimerState to be time-stamp based for background persistence
 interface ActiveTimerState {
   exIndex: number;
   setIndex: number;
-  timeLeft: number;
-  initialTime: number;
+  initialTime: number; 
+  targetEndTime: number | null; // Null if paused
+  remainingTime: number | null; // Used when paused
   isRunning: boolean;
 }
 
+// Update RestTimerState to be time-stamp based
 interface RestTimerState {
     isActive: boolean;
-    timeLeft: number;
+    targetEndTime: number | null;
+    remainingTime: number | null;
     totalTime: number;
 }
-
-// --- GLOBAL AUDIO CONTEXT (Singleton for iOS) ---
-let globalAudioCtx: AudioContext | any = null;
-
-const getAudioContext = () => {
-    if (!globalAudioCtx) {
-        const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-        if (Ctx) {
-            globalAudioCtx = new Ctx();
-        }
-    }
-    return globalAudioCtx;
-};
-
-// Helper to unlock AudioContext on user interaction
-const unlockAudioContext = async () => {
-    const ctx = getAudioContext();
-    if (ctx && ctx.state === 'suspended') {
-        try {
-            await ctx.resume();
-        } catch(e) { console.error("Resume failed", e); }
-    }
-}
-
-// Helper for Audio generation
-const playTimerSound = async (type: 'start' | 'finish' | 'tick' | 'rest_finish', volume: number) => {
-    try {
-        if (volume <= 0) return; // Mute if volume is 0
-
-        const ctx = getAudioContext();
-        if (!ctx) return;
-        
-        // Ensure resumes on timer ticks if previously suspended
-        if (ctx.state === 'suspended') {
-             ctx.resume();
-        }
-
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        
-        // Master Volume Scaling (0.1 is usually good max for simple tones)
-        const masterGain = 0.1 * volume;
-
-        if (type === 'start') {
-            // Single short high beep
-            osc.frequency.value = 880; 
-            gain.gain.value = masterGain;
-            osc.start();
-            osc.stop(ctx.currentTime + 0.1);
-        } else if (type === 'tick') {
-            // Short, sharp tick
-            osc.frequency.value = 1000;
-            gain.gain.value = masterGain * 0.5; // Ticks slightly quieter
-            osc.start();
-            osc.stop(ctx.currentTime + 0.05);
-        } else if (type === 'finish') {
-            // Double beep pattern
-            osc.frequency.setValueAtTime(440, ctx.currentTime);
-            gain.gain.setValueAtTime(masterGain, ctx.currentTime);
-            
-            osc.start();
-            
-            // First beep end
-            gain.gain.setValueAtTime(0, ctx.currentTime + 0.2);
-            
-            // Second beep start (higher pitch)
-            osc.frequency.setValueAtTime(880, ctx.currentTime + 0.3);
-            gain.gain.setValueAtTime(masterGain, ctx.currentTime + 0.3);
-            
-            // Second beep end
-            osc.stop(ctx.currentTime + 0.6);
-            gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.6);
-        } else if (type === 'rest_finish') {
-            // Distinct "Go" sound (slide up)
-            osc.frequency.setValueAtTime(600, ctx.currentTime);
-            osc.frequency.linearRampToValueAtTime(1200, ctx.currentTime + 0.3);
-            gain.gain.setValueAtTime(masterGain, ctx.currentTime);
-            gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
-            osc.start();
-            osc.stop(ctx.currentTime + 0.3);
-        }
-    } catch (e) {
-        console.error("Audio error", e);
-    }
-};
 
 // --- NEW COMPONENT: Number Stepper for Mobile UX ---
 interface NumberStepperProps {
@@ -164,21 +83,21 @@ const NumberStepper: React.FC<NumberStepperProps> = ({ value, onChange, step = 1
 
     if (layout === 'vertical') {
         return (
-            <div className={`flex flex-col items-center justify-between bg-slate-800 rounded-lg border border-slate-600 shadow-sm overflow-hidden ${className}`}>
+            <div className={`flex flex-col items-center justify-between bg-slate-800 rounded-lg border border-slate-600 shadow-sm overflow-hidden ${className} h-full`}>
                 <button 
                     onClick={() => handleDelta(step)}
-                    className="w-full h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-slate-700 active:bg-primary active:text-white transition-colors"
+                    className="w-full h-1/3 flex items-center justify-center bg-slate-700 hover:bg-slate-600 active:bg-primary/80 transition-colors text-gray-300 active:text-white"
                 >
-                    <ChevronUp size={18} />
+                    <ChevronUp size={16} />
                 </button>
-                <div className="w-full bg-dark border-y border-slate-600 py-1 text-center px-1">
+                <div className="w-full h-1/3 flex items-center justify-center bg-dark/50 border-y border-slate-600/50 shadow-inner px-1">
                     {displayValue}
                 </div>
                 <button 
                     onClick={() => handleDelta(-step)}
-                    className="w-full h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-slate-700 active:bg-primary active:text-white transition-colors"
+                    className="w-full h-1/3 flex items-center justify-center bg-slate-700 hover:bg-slate-600 active:bg-primary/80 transition-colors text-gray-300 active:text-white"
                 >
-                    <ChevronDown size={18} />
+                    <ChevronDown size={16} />
                 </button>
             </div>
         );
@@ -186,21 +105,21 @@ const NumberStepper: React.FC<NumberStepperProps> = ({ value, onChange, step = 1
 
     // Default Horizontal Layout
     return (
-        <div className={`flex items-center bg-dark rounded-lg border border-slate-600 h-10 overflow-hidden ${className}`}>
+        <div className={`flex items-center bg-dark rounded-lg border border-slate-600 h-9 overflow-hidden ${className}`}>
             <button 
                 onClick={() => handleDelta(-step)}
-                className="w-10 h-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-gray-400 border-r border-slate-700"
+                className="w-7 h-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-gray-400 border-r border-slate-700 shrink-0"
             >
-                <Minus size={16} />
+                <Minus size={14} />
             </button>
-            <div className="flex-1 px-1 text-center relative flex items-center justify-center">
+            <div className="flex-1 px-1 text-center relative flex items-center justify-center min-w-[30px]">
                 {displayValue}
             </div>
             <button 
                 onClick={() => handleDelta(step)}
-                className="w-10 h-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-gray-400 border-l border-slate-700"
+                className="w-7 h-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-gray-400 border-l border-slate-700 shrink-0"
             >
-                <Plus size={16} />
+                <Plus size={14} />
             </button>
         </div>
     );
@@ -209,25 +128,59 @@ const NumberStepper: React.FC<NumberStepperProps> = ({ value, onChange, step = 1
 
 const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish }) => {
   const [exercisesDB, setExercisesDB] = useState<Exercise[]>([]);
-  const [log, setLog] = useState<WorkoutLog>({
-    id: Date.now().toString(),
-    date: new Date().toISOString(),
-    routineId: routine?.id,
-    routineDayId: dayId || undefined,
-    exercises: [],
-    durationMinutes: 0
+  
+  // STATE INITIALIZATION with PERSISTENCE CHECK
+  const [log, setLog] = useState<WorkoutLog>(() => {
+      const savedSession = getActiveSession();
+      if (savedSession) {
+          return savedSession.log;
+      }
+      return {
+        id: Date.now().toString(),
+        date: new Date().toISOString(),
+        routineId: routine?.id,
+        routineDayId: dayId || undefined,
+        exercises: [],
+        durationMinutes: 0
+      };
   });
-  const [activeRoutineDay, setActiveRoutineDay] = useState<RoutineDay | undefined>(undefined);
-  const [startTime] = useState<number>(Date.now());
+
+  const [activeRoutineDay, setActiveRoutineDay] = useState<RoutineDay | undefined>(() => {
+      const savedSession = getActiveSession();
+      if (savedSession) {
+          return savedSession.activeRoutineDay;
+      }
+      return undefined;
+  });
+
+  const [startTime] = useState<number>(() => {
+      const savedSession = getActiveSession();
+      if (savedSession) {
+          return savedSession.startTime;
+      }
+      return Date.now();
+  });
+
   const [elapsed, setElapsed] = useState(0);
   
-  // Timer State
-  const [activeTimer, setActiveTimer] = useState<ActiveTimerState | null>(null);
-  const timerIntervalRef = useRef<number | null>(null);
-
+  // Timer State (Loaded from storage or default)
+  const [activeTimer, setActiveTimer] = useState<ActiveTimerState | null>(() => {
+      const savedSession = getActiveSession();
+      return savedSession?.activeTimer || null;
+  });
+  
   // Auto Rest Timer State
-  const [restTimer, setRestTimer] = useState<RestTimerState>({ isActive: false, timeLeft: 0, totalTime: 0 });
-  const restTimerIntervalRef = useRef<number | null>(null);
+  const [restTimer, setRestTimer] = useState<RestTimerState>(() => {
+       const savedSession = getActiveSession();
+       return savedSession?.restTimer || { isActive: false, targetEndTime: null, remainingTime: 0, totalTime: 0 };
+  });
+
+  // Display State for Timers (Derived from timestamps for UI updates)
+  const [displayActiveTime, setDisplayActiveTime] = useState(0);
+  const [displayRestTime, setDisplayRestTime] = useState(0);
+
+  const activeTimerRef = useRef<number | null>(null);
+  const restTimerRef = useRef<number | null>(null);
   
   // Settings State
   const [volume, setVolume] = useState(1.0);
@@ -240,6 +193,11 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
   // Notes Modal State
   const [viewingNote, setViewingNote] = useState<{title: string, text: string} | null>(null);
 
+  // Plate Calculator Modal State
+  const [showPlateModal, setShowPlateModal] = useState(false);
+  const [plateCalcTarget, setPlateCalcTarget] = useState<number>(0);
+  const [calculatedPlates, setCalculatedPlates] = useState<number[]>([]);
+
   // Add Exercise Modal State
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -250,6 +208,12 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
       type: ExerciseType.Weighted
   });
 
+  // Bluetooth Heart Rate State
+  const [bpm, setBpm] = useState<number | null>(null);
+  const [isHrConnected, setIsHrConnected] = useState(false);
+  const [hrSamples, setHrSamples] = useState<number[]>([]); // To calc average later
+  const deviceRef = useRef<any>(null); // BluetoothDevice
+
   // Wake Lock Ref
   const wakeLockRef = useRef<any>(null);
 
@@ -257,7 +221,7 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
     // Load Volume
     setVolume(getVolume());
 
-    // Initialize/Unlock Audio on mount (though user interaction is preferred)
+    // Initialize/Unlock Audio on mount
     getAudioContext();
 
     // WAKE LOCK LOGIC
@@ -265,15 +229,16 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
         if (getWakeLockEnabled() && 'wakeLock' in navigator) {
             try {
                 wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-            } catch (err) {
-                console.error('Wake Lock Error:', err);
+            } catch (err: any) {
+                if (err.name !== 'NotAllowedError') {
+                    console.error('Wake Lock Error:', err);
+                }
             }
         }
     };
 
     enableWakeLock();
 
-    // Re-acquire lock if page visibility changes (e.g. switching tabs and back)
     const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
             enableWakeLock();
@@ -283,136 +248,273 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
 
     return () => {
         if (wakeLockRef.current) {
-            wakeLockRef.current.release();
+            wakeLockRef.current.release().catch(() => {});
             wakeLockRef.current = null;
         }
         document.removeEventListener('visibilitychange', handleVisibilityChange);
+        
+        // Cleanup Bluetooth
+        if (deviceRef.current && deviceRef.current.gatt.connected) {
+            deviceRef.current.gatt.disconnect();
+        }
     };
   }, []);
+
+  // --- AUTO SAVE EFFECT ---
+  // Saves current state including running timers to local storage
+  useEffect(() => {
+      if (log && activeRoutineDay) {
+          saveActiveSession({
+              log,
+              activeRoutineDay,
+              startTime,
+              routineId: routine?.id,
+              dayId: dayId || undefined,
+              activeTimer,
+              restTimer
+          });
+      }
+  }, [log, activeRoutineDay, startTime, activeTimer, restTimer, routine, dayId]);
+  // ------------------------
+
+  // --- BLUETOOTH HEART RATE LOGIC ---
+  const connectHeartRate = async () => {
+      try {
+          const nav = navigator as any;
+          if (!nav.bluetooth) {
+              alert("Il tuo browser non supporta il Web Bluetooth (usa Chrome/Edge su Android/PC o Bluefy su iOS).");
+              return;
+          }
+
+          const device = await nav.bluetooth.requestDevice({
+              filters: [{ services: ['heart_rate'] }]
+          });
+
+          deviceRef.current = device;
+          const server = await device.gatt.connect();
+          const service = await server.getPrimaryService('heart_rate');
+          const characteristic = await service.getCharacteristic('heart_rate_measurement');
+
+          await characteristic.startNotifications();
+          
+          characteristic.addEventListener('characteristicvaluechanged', (event: any) => {
+              const value = event.target.value;
+              // Parsing Heart Rate Measurement standard (0x2A37)
+              // The first byte contains flags
+              const flags = value.getUint8(0);
+              
+              // 0th bit indicates if Format is UINT8 (0) or UINT16 (1)
+              const formatUint16 = (flags & 0x01) === 1;
+              
+              let hrValue;
+              if (formatUint16) {
+                  hrValue = value.getUint16(1, true); // Little Endian
+              } else {
+                  hrValue = value.getUint8(1);
+              }
+              
+              setBpm(hrValue);
+              setHrSamples(prev => [...prev, hrValue]);
+          });
+
+          device.addEventListener('gattserverdisconnected', () => {
+              setIsHrConnected(false);
+              setBpm(null);
+          });
+
+          setIsHrConnected(true);
+
+      } catch (error) {
+          console.error("Bluetooth Error:", error);
+          // Don't alert if user cancelled
+          if (String(error).includes("User cancelled")) return;
+          alert("Connessione fallita. Riprova.");
+      }
+  };
+  // ----------------------------------
+
+  // --- PLATE CALCULATOR LOGIC ---
+  const availablePlates = [25, 20, 15, 10, 5, 2.5, 1.25];
+  const plateColors: Record<number, string> = {
+      25: 'bg-red-600',
+      20: 'bg-blue-600',
+      15: 'bg-yellow-500',
+      10: 'bg-green-600',
+      5: 'bg-slate-100',
+      2.5: 'bg-slate-800',
+      1.25: 'bg-slate-400'
+  };
+
+  useEffect(() => {
+      const barWeight = 20;
+      if (!plateCalcTarget || plateCalcTarget <= barWeight) {
+          setCalculatedPlates([]);
+          return;
+      }
+      
+      let remaining = (plateCalcTarget - barWeight) / 2;
+      const plates: number[] = [];
+
+      for (const p of availablePlates) {
+          while (remaining >= p) {
+              plates.push(p);
+              remaining -= p;
+          }
+      }
+      setCalculatedPlates(plates);
+  }, [plateCalcTarget]);
+
+  const openPlateCalculator = (weight: number) => {
+      setPlateCalcTarget(weight || 20); // Default to bar if 0
+      setShowPlateModal(true);
+  };
+  // ------------------------------
 
   useEffect(() => {
     setExercisesDB(getExercises());
     
-    // FETCH GHOST DATA (HISTORY)
+    // Ghost data fetch logic...
     const logs = getWorkoutLogs();
     const history: Record<string, string> = {};
 
-    if (routine && dayId) {
-      const day = routine.days.find(d => d.id === dayId);
-      if (day) {
-        setActiveRoutineDay(JSON.parse(JSON.stringify(day)));
-        
-        // Init logs for active day
-        const initialLogExercises: WorkoutLogExercise[] = day.exercises.map(ex => {
-             // Find history for this exercise
-             const previousLogs = logs
-                .filter(l => l.exercises.some(e => e.exerciseId === ex.exerciseId))
-                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-             
-             if (previousLogs.length > 0) {
-                 const lastLog = previousLogs[0];
-                 const lastEx = lastLog.exercises.find(e => e.exerciseId === ex.exerciseId);
-                 if (lastEx) {
-                     // Calculate summary: e.g. "20kg x 10" (max weight or last set)
-                     const bestSet = lastEx.sets.reduce((prev, current) => (current.weight > prev.weight ? current : prev), lastEx.sets[0]);
-                     if (bestSet && bestSet.weight > 0) {
-                         history[ex.exerciseId] = `${bestSet.weight}kg x ${bestSet.reps}`;
-                     } else if (bestSet && bestSet.reps > 0) {
-                          history[ex.exerciseId] = `${bestSet.reps} reps`;
-                     }
-                 }
-             }
+    // If session restored, use existing logs in activeRoutineDay exercises
+    const targetExercises = activeRoutineDay?.exercises || [];
 
-             // Determine initial value based on type
-             const dbEx = getExercises().find(e => e.id === ex.exerciseId);
-             const isDuration = dbEx?.type === ExerciseType.Duration;
-             
-             const targetVal = isDuration 
-                ? parseInt(ex.targetReps || '0') 
-                : parseInt(ex.targetReps?.split('-')[0] || '0');
-
-             return {
-                exerciseId: ex.exerciseId,
-                sets: Array(ex.targetSets || 3).fill(null).map((_, i) => ({ 
-                    reps: isDuration ? 0 : targetVal || 0,
-                    weight: parseFloat(ex.targetWeight?.split('-')[0] || '0') || 0,
-                    durationSeconds: isDuration ? targetVal || 0 : 0,
-                    completed: false,
-                    type: 'normal',
-                    rpe: 0
-                }))
-             };
-        });
-        setLog(prev => ({ ...prev, exercises: initialLogExercises }));
-      }
-    }
+    targetExercises.forEach(ex => {
+            const previousLogs = logs
+            .filter(l => l.exercises.some(e => e.exerciseId === ex.exerciseId))
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            
+            if (previousLogs.length > 0) {
+                const lastLog = previousLogs[0];
+                const lastEx = lastLog.exercises.find(e => e.exerciseId === ex.exerciseId);
+                if (lastEx) {
+                    const bestSet = lastEx.sets.reduce((prev, current) => (current.weight > prev.weight ? current : prev), lastEx.sets[0]);
+                    if (bestSet && bestSet.weight > 0) {
+                        history[ex.exerciseId] = `${bestSet.weight}kg x ${bestSet.reps}`;
+                    } else if (bestSet && bestSet.reps > 0) {
+                        history[ex.exerciseId] = `${bestSet.reps} reps`;
+                    }
+                }
+            }
+    });
     setGhostData(history);
+    
+    // Only initialize log if it's empty (first run, not restore)
+    if (!getActiveSession() && routine && dayId && !activeRoutineDay) {
+         const day = routine.days.find(d => d.id === dayId);
+         if (day) {
+             setActiveRoutineDay(JSON.parse(JSON.stringify(day)));
+             
+             const initialLogExercises: WorkoutLogExercise[] = day.exercises.map(ex => {
+                const dbEx = getExercises().find(e => e.id === ex.exerciseId);
+                const isDuration = dbEx?.type === ExerciseType.Duration;
+                const targetVal = isDuration 
+                    ? parseInt(ex.targetReps || '0') 
+                    : parseInt(ex.targetReps?.split('-')[0] || '0');
+
+                return {
+                    exerciseId: ex.exerciseId,
+                    sets: Array(ex.targetSets || 3).fill(null).map((_, i) => ({ 
+                        reps: isDuration ? 0 : targetVal || 0,
+                        weight: parseFloat(ex.targetWeight?.split('-')[0] || '0') || 0,
+                        durationSeconds: isDuration ? targetVal || 0 : 0,
+                        completed: false,
+                        type: 'normal',
+                        rpe: 0
+                    }))
+                };
+             });
+             setLog(prev => ({ ...prev, exercises: initialLogExercises }));
+         }
+    }
+
   }, [routine, dayId]);
 
   // Global Workout Timer
   useEffect(() => {
     const timer = setInterval(() => {
+      // Calculate elapsed based on start timestamp, secure against background throttling
       setElapsed(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
     return () => clearInterval(timer);
   }, [startTime]);
 
-  // Set Countdown Timer Logic
+  // --- ACTIVE EXERCISE TIMER LOGIC (Timestamp Based) ---
   useEffect(() => {
     if (activeTimer && activeTimer.isRunning) {
-        timerIntervalRef.current = window.setInterval(() => {
-            setActiveTimer(prev => {
-                if (!prev) return null;
-                if (prev.timeLeft <= 0) {
-                    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-                    playTimerSound('finish', volume);
-                    updateSet(prev.exIndex, prev.setIndex, 'durationSeconds', prev.initialTime);
-                    updateSet(prev.exIndex, prev.setIndex, 'completed', true);
-                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-                    return { ...prev, isRunning: false, timeLeft: 0 };
-                }
-                // Tick in last 5 seconds
-                if (prev.timeLeft <= 5) {
-                    playTimerSound('tick', volume);
-                }
-                return { ...prev, timeLeft: prev.timeLeft - 1 };
-            });
+        activeTimerRef.current = window.setInterval(() => {
+            const now = Date.now();
+            const target = activeTimer.targetEndTime || now;
+            const diff = Math.ceil((target - now) / 1000);
+            const remaining = Math.max(0, diff);
+            
+            setDisplayActiveTime(remaining);
+
+            if (remaining <= 0) {
+                // Timer Finished
+                if (activeTimerRef.current) clearInterval(activeTimerRef.current);
+                playTimerSound('finish', volume);
+                updateSet(activeTimer.exIndex, activeTimer.setIndex, 'durationSeconds', activeTimer.initialTime);
+                updateSet(activeTimer.exIndex, activeTimer.setIndex, 'completed', true);
+                if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                setActiveTimer(null);
+            } else if (remaining <= 5) {
+                // Tick
+                playTimerSound('tick', volume);
+            }
         }, 1000);
+
+        // Immediate update for UI responsiveness
+        const now = Date.now();
+        const remaining = Math.max(0, Math.ceil(((activeTimer.targetEndTime || now) - now) / 1000));
+        setDisplayActiveTime(remaining);
+
+    } else if (activeTimer && !activeTimer.isRunning) {
+        // Paused state
+        setDisplayActiveTime(activeTimer.remainingTime || 0);
+        if (activeTimerRef.current) clearInterval(activeTimerRef.current);
     } else {
-        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        if (activeTimerRef.current) clearInterval(activeTimerRef.current);
     }
     return () => {
-        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        if (activeTimerRef.current) clearInterval(activeTimerRef.current);
     };
-  }, [activeTimer?.isRunning, volume]);
+  }, [activeTimer, volume]);
 
-  // Auto Rest Timer Logic
+  // --- REST TIMER LOGIC (Timestamp Based) ---
   useEffect(() => {
-      if (restTimer.isActive && restTimer.timeLeft > 0) {
-          restTimerIntervalRef.current = window.setInterval(() => {
-              setRestTimer(prev => {
-                  if (prev.timeLeft <= 1) {
-                      playTimerSound('rest_finish', volume);
-                      if (navigator.vibrate) navigator.vibrate(200);
-                      return { ...prev, isActive: false, timeLeft: 0 };
-                  }
-                  // Tick in last 5 seconds
-                  if (prev.timeLeft <= 5) {
-                      playTimerSound('tick', volume);
-                  }
-                  return { ...prev, timeLeft: prev.timeLeft - 1 };
-              });
+      if (restTimer.isActive && restTimer.targetEndTime) {
+          restTimerRef.current = window.setInterval(() => {
+              const now = Date.now();
+              const diff = Math.ceil((restTimer.targetEndTime! - now) / 1000);
+              const remaining = Math.max(0, diff);
+              
+              setDisplayRestTime(remaining);
+
+              if (remaining <= 0) {
+                  playTimerSound('rest_finish', volume);
+                  if (navigator.vibrate) navigator.vibrate(200);
+                  setRestTimer({ isActive: false, targetEndTime: null, remainingTime: 0, totalTime: 0 });
+              } else if (remaining <= 5) {
+                  playTimerSound('tick', volume);
+              }
           }, 1000);
+
+          // Immediate update
+          const now = Date.now();
+          setDisplayRestTime(Math.max(0, Math.ceil((restTimer.targetEndTime - now) / 1000)));
+
       } else {
-          if (restTimerIntervalRef.current) clearInterval(restTimerIntervalRef.current);
+          if (restTimerRef.current) clearInterval(restTimerRef.current);
       }
       return () => {
-          if (restTimerIntervalRef.current) clearInterval(restTimerIntervalRef.current);
+          if (restTimerRef.current) clearInterval(restTimerRef.current);
       }
-  }, [restTimer.isActive, volume]);
+  }, [restTimer, volume]);
+
 
   const updateSet = (exIndex: number, setIndex: number, field: keyof CompletedSet, value: any) => {
-    // Unlock audio on interaction
     unlockAudioContext();
 
     const newExercises = [...log.exercises];
@@ -427,9 +529,13 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
         const routineEx = activeRoutineDay?.exercises[exIndex];
         const restTime = routineEx?.targetRestSeconds;
         
-        // Trigger if rest time is defined and greater than 0, regardless of exercise type
         if (restTime && restTime > 0) {
-            setRestTimer({ isActive: true, timeLeft: restTime, totalTime: restTime });
+            setRestTimer({ 
+                isActive: true, 
+                targetEndTime: Date.now() + (restTime * 1000), 
+                remainingTime: restTime, 
+                totalTime: restTime 
+            });
         }
     }
   };
@@ -438,7 +544,6 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
       unlockAudioContext();
       const currentType = log.exercises[exIndex].sets[setIndex].type || 'normal';
       let nextType: SetType = 'normal';
-      
       switch (currentType) {
           case 'normal': nextType = 'warmup'; break;
           case 'warmup': nextType = 'failure'; break;
@@ -446,7 +551,6 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
           case 'drop': nextType = 'normal'; break;
           default: nextType = 'normal';
       }
-      
       updateSet(exIndex, setIndex, 'type', nextType);
   };
 
@@ -465,23 +569,36 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
       }
   }
 
-  // Timer Controls
+  // Active Timer Controls
   const toggleTimer = (exIndex: number, setIndex: number, currentDuration: number) => {
-      // Unlock Audio context on click
       unlockAudioContext();
 
       if (activeTimer?.exIndex === exIndex && activeTimer?.setIndex === setIndex) {
+          // Toggle Pause/Resume
           setActiveTimer(prev => {
-              if (prev && !prev.isRunning) playTimerSound('start', volume); 
-              return prev ? { ...prev, isRunning: !prev.isRunning } : null
+              if (!prev) return null;
+              
+              if (prev.isRunning) {
+                  // PAUSE: Calculate remaining based on target vs now
+                  const now = Date.now();
+                  const remaining = Math.max(0, Math.ceil(((prev.targetEndTime || now) - now) / 1000));
+                  return { ...prev, isRunning: false, remainingTime: remaining, targetEndTime: null };
+              } else {
+                  // RESUME: Calculate new target based on stored remaining
+                  playTimerSound('start', volume); 
+                  return { ...prev, isRunning: true, targetEndTime: Date.now() + (prev.remainingTime || 0) * 1000 };
+              }
           });
       } else {
+          // START NEW
           playTimerSound('start', volume);
+          const duration = currentDuration || 60;
           setActiveTimer({
               exIndex,
               setIndex,
-              initialTime: currentDuration || 60,
-              timeLeft: currentDuration || 60,
+              initialTime: duration,
+              targetEndTime: Date.now() + (duration * 1000),
+              remainingTime: duration,
               isRunning: true
           });
       }
@@ -489,7 +606,8 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
 
   const stopTimer = () => {
       if (activeTimer) {
-          const elapsed = activeTimer.initialTime - activeTimer.timeLeft;
+          const timeLeft = displayActiveTime; // Use state which is synced with interval
+          const elapsed = activeTimer.initialTime - timeLeft;
           if (elapsed > 0) {
              updateSet(activeTimer.exIndex, activeTimer.setIndex, 'durationSeconds', elapsed);
              updateSet(activeTimer.exIndex, activeTimer.setIndex, 'completed', true);
@@ -498,12 +616,64 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
       }
   };
 
+  const handleExit = () => {
+      clearActiveSession();
+      if (deviceRef.current && deviceRef.current.gatt.connected) {
+         deviceRef.current.gatt.disconnect();
+      }
+      onFinish();
+  };
+
   const finishWorkout = () => {
-    const finalLog = {
+    // 1. Get user weight for calorie calculation
+    const measurements = getMeasurements();
+    const lastWeight = measurements.length > 0 ? measurements[measurements.length - 1].weight : 75; // Default 75kg
+    const durationHours = (elapsed / 60) / 60;
+
+    // 2. Estimate Intensity (METs) based on workout composition
+    // Weighted/Bodyweight ~ 5 METs (Moderate-Vigorous Weight Lifting)
+    // Cardio/Duration ~ 8 METs (Running/Cycling)
+    let cardioSets = 0;
+    let weightSets = 0;
+    
+    log.exercises.forEach(logEx => {
+        const dbEx = exercisesDB.find(e => e.id === logEx.exerciseId);
+        if (dbEx) {
+            const completedCount = logEx.sets.filter(s => s.completed).length;
+            if (dbEx.type === ExerciseType.Duration || dbEx.muscleGroup === MuscleGroup.Cardio) {
+                cardioSets += completedCount;
+            } else {
+                weightSets += completedCount;
+            }
+        }
+    });
+
+    const totalSets = cardioSets + weightSets;
+    // Default MET for Weight training (with rest)
+    let estimatedMET = 5.0; 
+    
+    if (totalSets > 0) {
+        // Weighted average of METs
+        const cardioRatio = cardioSets / totalSets;
+        // Shift MET from 5 (Pure Weights) towards 8 (Pure Cardio) based on ratio
+        estimatedMET = 5.0 + (cardioRatio * 3.0); 
+    }
+
+    // Formula: Calories = MET * Weight(kg) * Time(hours)
+    // Future improvement: use avg HR if available (hrSamples) for better accuracy
+    const estimatedCalories = Math.round(estimatedMET * lastWeight * durationHours);
+
+    const finalLog: WorkoutLog = {
       ...log,
-      durationMinutes: Math.floor(elapsed / 60)
+      durationMinutes: Math.floor(elapsed / 60),
+      calories: estimatedCalories
     };
+    
     saveWorkoutLog(finalLog);
+    clearActiveSession();
+    if (deviceRef.current && deviceRef.current.gatt.connected) {
+         deviceRef.current.gatt.disconnect();
+    }
     onFinish();
   };
 
@@ -560,7 +730,6 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
 
   const handleQuickCreate = () => {
       if (!newExerciseData.name) return;
-
       const newEx: Exercise = {
           id: Date.now().toString(),
           name: newExerciseData.name,
@@ -568,11 +737,9 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
           type: newExerciseData.type as ExerciseType,
           notes: ''
       };
-
       const updatedList = [...exercisesDB, newEx];
       saveExercises(updatedList);
       setExercisesDB(updatedList);
-      
       handleAddAdHocExercise(newEx.id);
       setIsCreatingNew(false);
   };
@@ -582,7 +749,6 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
       e.muscleGroup.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Helper for Row Styling based on Set Type
   const getRowStyle = (type: SetType = 'normal') => {
       switch (type) {
           case 'warmup': return 'bg-yellow-500/10 border-l-2 border-l-yellow-500';
@@ -607,11 +773,24 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
     <div className="bg-dark min-h-screen flex flex-col pb-20 relative">
       {/* Header */}
       <div className="sticky top-0 bg-surface/90 backdrop-blur-md border-b border-slate-700 p-4 z-10 flex justify-between items-center">
-        <button onClick={onFinish} className="text-gray-400"><ChevronLeft /></button>
+        <button onClick={handleExit} className="text-gray-400"><ChevronLeft /></button>
         <div className="text-center">
-            <h2 className="font-bold text-white">{activeRoutineDay.name}</h2>
-            <div className="text-primary font-mono text-sm flex items-center justify-center gap-1">
-                <Timer size={14}/> {formatTime(elapsed)}
+            <h2 className="font-bold text-white max-w-[150px] truncate">{activeRoutineDay.name}</h2>
+            <div className="text-primary font-mono text-sm flex items-center justify-center gap-3">
+                <span className="flex items-center gap-1"><Timer size={14}/> {formatTime(elapsed)}</span>
+                {/* HEART RATE DISPLAY */}
+                <button 
+                    onClick={connectHeartRate} 
+                    className={`flex items-center gap-1 font-bold transition-all ${isHrConnected ? 'text-red-500' : 'text-gray-500 hover:text-white'}`}
+                >
+                    {isHrConnected ? (
+                        <>
+                            <Activity size={14} className="animate-pulse" /> {bpm || '--'} <span className="text-[10px]">BPM</span>
+                        </>
+                    ) : (
+                        <Bluetooth size={14} />
+                    )}
+                </button>
             </div>
         </div>
         <button onClick={finishWorkout} className="text-emerald-400 font-bold text-sm uppercase flex items-center gap-1">
@@ -692,7 +871,7 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                     </div>
 
                     <div className="p-2">
-                        <div className="grid grid-cols-12 gap-2 mb-2 text-xs text-gray-500 uppercase font-bold text-center">
+                        <div className="grid grid-cols-12 gap-1 mb-2 text-xs text-gray-500 uppercase font-bold text-center">
                             <div className="col-span-1">Set</div>
                             <div className="col-span-4">Kg</div>
                             <div className="col-span-4">{isTimed ? 'Tempo (M : S)' : 'Reps'}</div>
@@ -700,82 +879,73 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                             <div className="col-span-1"></div>
                         </div>
                         {exLog.sets.map((set, sIndex) => {
-                            const isTimerActive = activeTimer?.exIndex === i && activeTimer?.setIndex === sIndex;
                             const rowStyle = getRowStyle(set.type);
                             
                             return (
-                                <div key={sIndex} className={`grid grid-cols-12 gap-2 mb-2 items-center transition-all rounded p-1 ${rowStyle} ${set.completed ? 'opacity-60' : 'opacity-100'}`}>
+                                <div key={sIndex} className={`grid grid-cols-12 gap-1 mb-3 items-center transition-all rounded p-1 ${rowStyle} ${set.completed ? 'opacity-60' : 'opacity-100'}`}>
                                     {/* Set Type Toggle */}
                                     <button 
                                         onClick={() => toggleSetType(i, sIndex)}
-                                        className="col-span-1 text-center bg-dark rounded py-2 hover:bg-slate-700 transition-colors flex items-center justify-center h-10 border border-slate-600"
+                                        className="col-span-1 text-center bg-dark rounded hover:bg-slate-700 transition-colors flex items-center justify-center h-16 border border-slate-600"
                                     >
                                         {getSetBadge(set.type, sIndex)}
                                     </button>
 
-                                    <div className="col-span-4">
-                                        <NumberStepper 
-                                            value={set.weight || 0}
-                                            onChange={(val) => updateSet(i, sIndex, 'weight', val)}
-                                            step={1}
-                                            placeholder="Kg"
-                                        />
+                                    <div className="col-span-4 flex items-center gap-1 h-16">
+                                        <div className="flex-1 min-w-0 h-full">
+                                            <NumberStepper 
+                                                value={set.weight || 0}
+                                                onChange={(val) => updateSet(i, sIndex, 'weight', val)}
+                                                step={1}
+                                                placeholder="Kg"
+                                                layout="vertical"
+                                                className="h-full"
+                                            />
+                                        </div>
+                                        <button 
+                                            onClick={() => openPlateCalculator(set.weight || 0)} 
+                                            className="w-8 h-full bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg flex items-center justify-center text-gray-400 hover:text-white transition-colors shrink-0"
+                                        >
+                                            <Calculator size={16}/>
+                                        </button>
                                     </div>
-                                    <div className="col-span-4 relative">
+                                    <div className="col-span-4 relative h-16">
                                         {isTimed ? (
-                                            <div className="flex items-center gap-1">
-                                                {isTimerActive ? (
-                                                     <div className="flex-1 flex items-center justify-between bg-dark border border-primary rounded px-2 py-1 h-14">
-                                                        <span className="font-mono font-bold text-primary text-lg">
-                                                            {formatTime(activeTimer.timeLeft)}
-                                                        </span>
-                                                        <div className="flex gap-1 flex-col justify-center">
-                                                            <button onClick={() => toggleTimer(i, sIndex, 0)} className="text-yellow-500 p-1">
-                                                                <Pause size={14} fill="currentColor"/>
-                                                            </button>
-                                                            <button onClick={stopTimer} className="text-red-500 p-1">
-                                                                <Square size={14} fill="currentColor"/>
-                                                            </button>
-                                                        </div>
-                                                     </div>
-                                                ) : (
-                                                    <div className="flex-1 flex gap-1 items-center h-14">
-                                                        <div className="flex gap-1 flex-1 h-full">
-                                                            {/* SPLIT STEPPER FOR MINUTES AND SECONDS WITH VERTICAL LAYOUT */}
-                                                            <NumberStepper 
-                                                                value={Math.floor((set.durationSeconds || 0) / 60)}
-                                                                onChange={(val) => {
-                                                                    const currentSecs = (set.durationSeconds || 0) % 60;
-                                                                    updateSet(i, sIndex, 'durationSeconds', (val * 60) + currentSecs);
-                                                                }}
-                                                                step={1}
-                                                                placeholder="M"
-                                                                isTime={true}
-                                                                layout="vertical"
-                                                                className="w-1/2 h-full"
-                                                            />
-                                                            <NumberStepper 
-                                                                value={(set.durationSeconds || 0) % 60}
-                                                                onChange={(val) => {
-                                                                    const validSec = Math.min(59, val);
-                                                                    const currentMins = Math.floor((set.durationSeconds || 0) / 60);
-                                                                    updateSet(i, sIndex, 'durationSeconds', (currentMins * 60) + validSec);
-                                                                }}
-                                                                step={5}
-                                                                placeholder="S"
-                                                                isTime={true}
-                                                                layout="vertical"
-                                                                className="w-1/2 h-full"
-                                                            />
-                                                        </div>
-                                                        <button 
-                                                            onClick={() => toggleTimer(i, sIndex, set.durationSeconds || 60)}
-                                                            className="bg-emerald-600 hover:bg-emerald-500 text-white w-8 h-full rounded-lg flex items-center justify-center shrink-0"
-                                                        >
-                                                            <Play size={14} fill="currentColor" />
-                                                        </button>
-                                                    </div>
-                                                )}
+                                            <div className="flex items-center gap-1 h-full">
+                                                <div className="flex gap-1 flex-1 h-full">
+                                                    {/* SPLIT STEPPER FOR MINUTES AND SECONDS WITH VERTICAL LAYOUT */}
+                                                    <NumberStepper 
+                                                        value={Math.floor((set.durationSeconds || 0) / 60)}
+                                                        onChange={(val) => {
+                                                            const currentSecs = (set.durationSeconds || 0) % 60;
+                                                            updateSet(i, sIndex, 'durationSeconds', (val * 60) + currentSecs);
+                                                        }}
+                                                        step={1}
+                                                        placeholder="M"
+                                                        isTime={true}
+                                                        layout="vertical"
+                                                        className="w-1/2 h-full"
+                                                    />
+                                                    <NumberStepper 
+                                                        value={(set.durationSeconds || 0) % 60}
+                                                        onChange={(val) => {
+                                                            const validSec = Math.min(59, val);
+                                                            const currentMins = Math.floor((set.durationSeconds || 0) / 60);
+                                                            updateSet(i, sIndex, 'durationSeconds', (currentMins * 60) + validSec);
+                                                        }}
+                                                        step={5}
+                                                        placeholder="S"
+                                                        isTime={true}
+                                                        layout="vertical"
+                                                        className="w-1/2 h-full"
+                                                    />
+                                                </div>
+                                                <button 
+                                                    onClick={() => toggleTimer(i, sIndex, set.durationSeconds || 60)}
+                                                    className="bg-emerald-600 hover:bg-emerald-500 text-white w-8 h-full rounded-lg flex items-center justify-center shrink-0 shadow-sm"
+                                                >
+                                                    <Play size={14} fill="currentColor" />
+                                                </button>
                                             </div>
                                         ) : (
                                             <NumberStepper 
@@ -783,25 +953,27 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                                                 onChange={(val) => updateSet(i, sIndex, 'reps', val)}
                                                 step={1}
                                                 placeholder="Reps"
+                                                layout="vertical"
+                                                className="h-full"
                                             />
                                         )}
-                                        {/* GHOST SET INFO */}
+                                        {/* GHOST SET INFO - Adjusted position for taller row */}
                                         {ghost && sIndex === 0 && !isTimed && (
-                                            <div className="absolute -bottom-3 left-0 w-full text-center text-[9px] text-gray-500 flex items-center justify-center gap-1">
+                                            <div className="absolute -bottom-4 left-0 w-full text-center text-[9px] text-gray-500 flex items-center justify-center gap-1 z-10 pointer-events-none">
                                                 <History size={8}/> Scorsa: {ghost}
                                             </div>
                                         )}
                                     </div>
                                     
                                     {/* RPE Input */}
-                                    <div className="col-span-2">
+                                    <div className="col-span-2 h-16">
                                         <input 
                                             type="number"
                                             min="0" max="10"
                                             value={set.rpe || ''}
                                             onChange={(e) => updateSet(i, sIndex, 'rpe', parseFloat(e.target.value))}
                                             placeholder="-"
-                                            className="w-full bg-dark text-white text-center h-10 rounded-lg border border-slate-600 focus:outline-none focus:border-primary text-sm"
+                                            className="w-full h-full bg-dark text-white text-center rounded-lg border border-slate-600 focus:outline-none focus:border-primary text-sm"
                                         />
                                     </div>
 
@@ -838,6 +1010,62 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
         </button>
       </div>
       
+      {/* EXERCISE DURATION TIMER OVERLAY (FULL SCREEN) */}
+      {activeTimer && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/95 backdrop-blur-md p-6 animate-in fade-in duration-300">
+            <h2 className="text-xl font-bold text-gray-400 mb-2 uppercase tracking-widest text-center">
+                {exercisesDB.find(e => e.id === activeRoutineDay.exercises[activeTimer.exIndex].exerciseId)?.name || 'Esercizio'}
+            </h2>
+            <div className="text-3xl font-bold text-white mb-8">
+                Set {activeTimer.setIndex + 1}
+            </div>
+            
+            <div className="relative w-64 h-64 flex items-center justify-center mb-12">
+                <svg className="w-full h-full transform -rotate-90">
+                    <circle cx="128" cy="128" r="120" className="text-slate-800" strokeWidth="12" fill="none"/>
+                    <circle 
+                        cx="128" cy="128" r="120" 
+                        className="text-emerald-500 transition-all duration-1000 ease-linear" 
+                        strokeWidth="12" 
+                        fill="none" 
+                        strokeDasharray={753} // 2 * PI * 120
+                        strokeDashoffset={753 - (753 * displayActiveTime) / activeTimer.initialTime}
+                        strokeLinecap="round"
+                    />
+                </svg>
+                <div className="absolute flex flex-col items-center">
+                     <span className={`text-8xl font-bold tracking-tighter transition-colors ${displayActiveTime <= 5 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
+                        {formatTime(displayActiveTime)}
+                     </span>
+                </div>
+            </div>
+
+            <div className="flex flex-col w-full max-w-xs gap-4">
+                <button 
+                    onClick={() => {
+                        unlockAudioContext(); 
+                        toggleTimer(activeTimer.exIndex, activeTimer.setIndex, activeTimer.initialTime);
+                    }}
+                    className={`py-4 rounded-2xl font-bold text-lg border transition-all flex items-center justify-center gap-2 ${activeTimer.isRunning ? 'bg-yellow-600/20 text-yellow-500 border-yellow-600' : 'bg-emerald-600 text-white border-emerald-500'}`}
+                >
+                    {activeTimer.isRunning ? <><Pause size={24}/> Pausa</> : <><Play size={24}/> Riprendi</>}
+                </button>
+                <button 
+                    onClick={stopTimer}
+                    className="bg-transparent border-2 border-red-500/50 text-red-400 hover:text-white hover:bg-red-600 hover:border-red-600 py-4 rounded-2xl font-bold text-lg transition-all flex items-center justify-center gap-2"
+                >
+                    <Square size={24}/> Stop & Completa
+                </button>
+                <button 
+                    onClick={() => setActiveTimer(null)} 
+                    className="mt-4 text-gray-500 text-sm flex items-center justify-center gap-1 hover:text-gray-300"
+                >
+                   <Minimize2 size={16}/> Annulla
+                </button>
+            </div>
+        </div>
+      )}
+
       {/* AUTO REST TIMER POP-UP (FULL SCREEN OVERLAY) */}
       {restTimer.isActive && (
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/95 backdrop-blur-md p-6 animate-in fade-in duration-300">
@@ -852,15 +1080,20 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                         strokeWidth="12" 
                         fill="none" 
                         strokeDasharray={753} // 2 * PI * 120
-                        strokeDashoffset={753 - (753 * restTimer.timeLeft) / restTimer.totalTime}
+                        strokeDashoffset={753 - (753 * displayRestTime) / restTimer.totalTime}
                         strokeLinecap="round"
                     />
                 </svg>
                 <div className="absolute flex flex-col items-center">
-                     <span className={`text-8xl font-bold tracking-tighter transition-colors ${restTimer.timeLeft <= 5 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
-                        {formatTime(restTimer.timeLeft)}
+                     <span className={`text-8xl font-bold tracking-tighter transition-colors ${displayRestTime <= 5 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
+                        {formatTime(displayRestTime)}
                      </span>
                      <span className="text-xl text-gray-400 mt-2">rimanenti</span>
+                     {bpm && (
+                         <div className="mt-4 flex items-center gap-2 text-red-500 font-bold animate-pulse">
+                             <Heart size={20} fill="currentColor"/> {bpm}
+                         </div>
+                     )}
                 </div>
             </div>
 
@@ -868,7 +1101,12 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                 <button 
                     onClick={() => {
                         unlockAudioContext(); // Unlock on interaction
-                        setRestTimer(prev => ({...prev, timeLeft: prev.timeLeft + 30, totalTime: prev.totalTime + 30}));
+                        setRestTimer(prev => ({
+                            ...prev, 
+                            // Add 30s to the target timestamp
+                            targetEndTime: (prev.targetEndTime || Date.now()) + 30000,
+                            totalTime: prev.totalTime + 30
+                        }));
                     }}
                     className="bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-2xl font-bold text-lg border border-slate-700 transition-all flex items-center justify-center gap-2"
                 >
@@ -880,13 +1118,95 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ routine, dayId, onFinish 
                 >
                     <SkipForward size={24}/> Salta Riposo
                 </button>
-                {/* Optional minimize button if they really want to see logs */}
                 <button 
                     onClick={() => setRestTimer(prev => ({...prev, isActive: false}))} 
                     className="mt-4 text-gray-500 text-sm flex items-center justify-center gap-1 hover:text-gray-300"
                 >
                    <Minimize2 size={16}/> Chiudi Timer
                 </button>
+            </div>
+        </div>
+      )}
+      
+      {/* Plate Calculator Modal */}
+      {showPlateModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+            <div className="bg-surface p-6 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl relative">
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                          <Calculator size={20} className="text-primary"/> Calcolatore Dischi
+                      </h3>
+                      <button onClick={() => setShowPlateModal(false)} className="text-gray-400 hover:text-white p-2">
+                          <X size={24}/>
+                      </button>
+                  </div>
+
+                  <div className="mb-6">
+                      <label className="block text-xs text-gray-400 mb-2 uppercase font-bold">Peso Target (Kg)</label>
+                      <div className="flex items-center gap-3">
+                        <NumberStepper 
+                            value={plateCalcTarget}
+                            onChange={(val) => setPlateCalcTarget(val)}
+                            step={1.25}
+                            min={20}
+                            className="flex-1 text-lg h-12"
+                        />
+                        <div className="text-right">
+                             <div className="text-[10px] text-gray-500">Bilanciere</div>
+                             <div className="font-bold text-white text-sm">20 Kg</div>
+                        </div>
+                      </div>
+                  </div>
+
+                  {plateCalcTarget > 20 && (
+                     <div className="bg-dark p-3 rounded-xl border border-slate-700 w-full overflow-hidden mb-4">
+                        <div className="overflow-x-auto pb-2 flex justify-center">
+                            <div className="flex items-center justify-center min-w-max min-h-[100px] px-2">
+                                {/* BAR SHAFT */}
+                                <div className="w-8 h-3 bg-gray-400 mx-[1px] rounded-l-sm relative shrink-0 border-r border-gray-600"></div>
+
+                                {/* RIGHT PLATES */}
+                                <div className="flex items-center justify-start gap-[1px]">
+                                    {calculatedPlates.map((p, i) => (
+                                        <div 
+                                            key={`r-${i}`} 
+                                            className={`${plateColors[p]} border border-black/30 shadow-md rounded-[2px] flex items-center justify-center text-[8px] font-bold text-black/60 shrink-0`}
+                                            style={{
+                                                height: `${30 + (p * 2)}px`, 
+                                                width: `${6 + (p/6)}px`
+                                            }}
+                                        >
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="w-4 h-3 bg-gray-400 mx-[1px] rounded-r-sm"></div>
+                            </div>
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap justify-center gap-2">
+                            {calculatedPlates.map((p, i) => (
+                                 <div key={i} className="flex items-center gap-1 bg-surface px-2 py-1 rounded-full border border-slate-600 shadow-sm shrink-0">
+                                     <div className={`w-2 h-2 rounded-full ${plateColors[p]}`}></div>
+                                     <span className="font-bold text-white text-xs">{p}</span>
+                                 </div>
+                            ))}
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-2 text-center">Dischi per un lato</p>
+                    </div>
+                  )}
+                  
+                  {plateCalcTarget <= 20 && (
+                      <div className="text-center text-gray-500 py-8 text-sm border border-dashed border-slate-700 rounded-xl mb-4">
+                          Inserisci un peso > 20kg
+                      </div>
+                  )}
+
+                  <button 
+                    onClick={() => setShowPlateModal(false)}
+                    className="w-full bg-slate-700 hover:bg-slate-600 py-3 rounded-xl font-medium text-white transition-colors"
+                  >
+                    Chiudi
+                  </button>
             </div>
         </div>
       )}

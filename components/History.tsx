@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { getWorkoutLogs, deleteWorkoutLog, getExercises } from '../services/storageService';
 import { WorkoutLog, Exercise, SetType } from '../types';
-import { Calendar, Trash2, Clock, Dumbbell, AlertTriangle, Info } from 'lucide-react';
+import { Calendar, Trash2, Clock, Dumbbell, AlertTriangle, Info, Flame } from 'lucide-react';
 
 const History: React.FC = () => {
   const [logs, setLogs] = useState<WorkoutLog[]>([]);
@@ -47,10 +47,15 @@ const History: React.FC = () => {
                 <div className="flex items-center gap-2 text-gray-400 text-sm mb-1">
                     <Calendar size={14}/> {new Date(log.date).toLocaleDateString('it-IT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-wrap">
                     <span className="flex items-center gap-1 text-xs font-bold text-emerald-400 bg-emerald-900/20 px-2 py-1 rounded">
                         <Clock size={12}/> {log.durationMinutes} min
                     </span>
+                    {log.calories && log.calories > 0 && (
+                        <span className="flex items-center gap-1 text-xs font-bold text-orange-400 bg-orange-900/20 px-2 py-1 rounded">
+                            <Flame size={12}/> {log.calories} kcal
+                        </span>
+                    )}
                     <span className="text-xs text-gray-500">
                         {log.exercises.length} Esercizi
                     </span>
