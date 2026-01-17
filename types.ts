@@ -1,5 +1,4 @@
 
-
 export enum MuscleGroup {
   Chest = 'Petto',
   Back = 'Schiena',
@@ -21,48 +20,53 @@ export enum ExerciseType {
 export type ThemeType = 'iron' | 'ocean' | 'fire' | 'light';
 export type Language = 'it' | 'en' | 'fr' | 'de';
 export type SetType = 'normal' | 'warmup' | 'failure' | 'drop';
+export type Gender = 'M' | 'F' | 'O';
+
+export interface UserProfile {
+  birthDate?: string; // Formato ISO YYYY-MM-DD
+  gender?: Gender;
+  height?: number; // In cm
+}
+
+export interface CustomMetricConfig {
+  id: string;
+  label: string;
+  unit: string;
+}
 
 export interface Exercise {
   id: string;
   name: string;
-  muscleGroup: MuscleGroup; // Gruppo Primario
-  secondaryMuscles?: MuscleGroup[]; // Gruppi Secondari (Opzionale)
+  muscleGroup: MuscleGroup;
+  secondaryMuscles?: MuscleGroup[];
   type: ExerciseType;
   notes?: string;
-  link?: string; // URL video o tutorial
-  defaultRestSeconds?: number; // Tempo recupero preferito
-}
-
-export interface WorkoutSet {
-  id: string;
-  reps?: number;
-  weight?: number;
-  durationSeconds?: number;
-  completed: boolean;
+  link?: string;
+  defaultRestSeconds?: number;
 }
 
 export interface RoutineExercise {
   id: string;
   exerciseId: string;
   targetSets: number;
-  targetReps?: string; // String to allow range "8-12"
-  targetWeight?: string; // String to allow range "80-90" or simple "20"
+  targetReps?: string;
+  targetWeight?: string;
   targetRestSeconds?: number;
   isSuperset: boolean;
-  supersetGroupId?: string; // Links exercises in a superset
+  supersetGroupId?: string;
 }
 
 export interface RoutineDay {
   id: string;
-  name: string; // e.g., "Push Day"
+  name: string;
   exercises: RoutineExercise[];
 }
 
 export interface Routine {
   id: string;
   name: string;
-  startDate: string; // ISO Date
-  endDate?: string; // ISO Date
+  startDate: string;
+  endDate?: string;
   days: RoutineDay[];
 }
 
@@ -77,8 +81,8 @@ export interface CompletedSet {
   weight: number;
   durationSeconds: number;
   completed: boolean;
-  type?: SetType; // Tipologia di set
-  rpe?: number; // Rate of Perceived Exertion (1-10)
+  type?: SetType;
+  rpe?: number;
 }
 
 export interface WorkoutLogExercise {
@@ -88,12 +92,12 @@ export interface WorkoutLogExercise {
 
 export interface WorkoutLog {
   id: string;
-  date: string; // ISO Date
-  routineId?: string; // Optional if ad-hoc
+  date: string;
+  routineId?: string;
   routineDayId?: string;
   exercises: WorkoutLogExercise[];
   durationMinutes: number;
-  calories?: number; // Stima calorie bruciate
+  calories?: number;
 }
 
 export interface BodyMeasurement {
@@ -105,6 +109,9 @@ export interface BodyMeasurement {
   waist?: number;
   arms?: number;
   legs?: number;
+  neck?: number;   // Aggiunto per BF Calc
+  hips?: number;   // Aggiunto per BF Calc
+  customValues?: Record<string, number>;
 }
 
 export type NavigationTab = 'dashboard' | 'exercises' | 'routines' | 'history' | 'stats' | 'measurements' | 'calculator' | 'settings';

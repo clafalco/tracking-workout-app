@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NavigationTab, Routine } from './types';
 import Dashboard from './components/Dashboard';
 import ExerciseManager from './components/ExerciseManager';
@@ -10,26 +10,55 @@ import Statistics from './components/Statistics';
 import BodyMeasurements from './components/BodyMeasurements';
 import MaxCalculator from './components/MaxCalculator';
 import Settings from './components/Settings';
-import { getTheme, applyTheme, getActiveSession, getRoutines } from './services/storageService';
+import { getTheme, applyTheme, getActiveSession, getRoutines, getWakeLockEnabled } from './services/storageService';
+import { unlockAudioContext } from './services/audioService';
 import { t } from './services/translationService';
-import { LayoutDashboard, Dumbbell, ClipboardList, History as HistoryIcon, BarChart2, Scale } from 'lucide-react';
+import { LayoutDashboard, Dumbbell, ClipboardList, History as HistoryIcon, BarChart2 } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
+    return (localStorage.getItem('iron_track_active_tab') as NavigationTab) || 'dashboard';
+  });
   const [workoutSession, setWorkoutSession] = useState<{ routine: Routine | null, dayId: string | null } | null>(null);
   
-  // Stato per forzare il re-render quando cambia la lingua
   const [langKey, setLangKey] = useState(0);
+  const globalWakeLockRef = useRef<any>(null);
+
+  const requestGlobalWakeLock = async () => {
+    if (getWakeLockEnabled() && 'wakeLock' in navigator) {
+        try {
+            // @ts-ignore
+            globalWakeLockRef.current = await navigator.wakeLock.request('screen');
+            console.log("Global Wake Lock attivo.");
+        } catch (err) {
+            console.warn("Global Wake Lock fallito.");
+        }
+    }
+  };
 
   useEffect(() => {
-    // Apply saved theme on boot
     applyTheme(getTheme());
 
-    // --- AUTO-RESTORE ACTIVE SESSION (Fix for Background refresh) ---
+    const handleGlobalInteraction = () => {
+        unlockAudioContext();
+    };
+
+    document.addEventListener('touchstart', handleGlobalInteraction, { capture: true, passive: true });
+    document.addEventListener('click', handleGlobalInteraction, { capture: true, passive: true });
+    document.addEventListener('keydown', handleGlobalInteraction, { capture: true, passive: true });
+
+    // Gestione Wake Lock Globale e Visibilità
+    const handleVisibility = async () => {
+        if (document.visibilityState === 'visible') {
+            await requestGlobalWakeLock();
+        }
+    };
+
+    requestGlobalWakeLock();
+    document.addEventListener('visibilitychange', handleVisibility);
+
     const savedSession = getActiveSession();
     if (savedSession) {
-        // Se c'è una sessione salvata, proviamo a ripristinarla
-        // Cerchiamo la routine completa se possibile, altrimenti passiamo null (ActiveWorkout usa activeRoutineDay dal salvataggio)
         let routineToPass: Routine | null = null;
         if (savedSession.routineId) {
             const routines = getRoutines();
@@ -40,15 +69,28 @@ const App: React.FC = () => {
             dayId: savedSession.dayId || null 
         });
     }
+
+    return () => {
+        document.removeEventListener('touchstart', handleGlobalInteraction);
+        document.removeEventListener('click', handleGlobalInteraction);
+        document.removeEventListener('keydown', handleGlobalInteraction);
+        document.removeEventListener('visibilitychange', handleVisibility);
+        if (globalWakeLockRef.current) {
+            globalWakeLockRef.current.release().catch(() => {});
+        }
+    };
   }, []);
 
+  useEffect(() => {
+    localStorage.setItem('iron_track_active_tab', activeTab);
+  }, [activeTab]);
+
   const handleLanguageUpdate = () => {
-    // Incrementando questo numero, React distrugge e ricrea l'interfaccia
-    // applicando le nuove traduzioni istantaneamente senza ricaricare la pagina
     setLangKey(prev => prev + 1);
   };
 
   const startWorkout = (routine: Routine, dayId: string) => {
+    unlockAudioContext();
     setWorkoutSession({ routine, dayId });
   };
 
@@ -76,20 +118,17 @@ const App: React.FC = () => {
       case 'stats': return <Statistics />;
       case 'measurements': return <BodyMeasurements />;
       case 'calculator': return <MaxCalculator />;
-      // Passiamo la funzione di aggiornamento al componente Settings
       case 'settings': return <Settings onLanguageChange={handleLanguageUpdate} />;
       default: return <Dashboard onStartWorkout={startWorkout} changeTab={setActiveTab} />;
     }
   };
 
   return (
-    // La key={langKey} è il trucco: quando cambia, tutto il contenuto viene ridisegnato con la nuova lingua
     <div key={langKey} className="bg-dark min-h-screen text-slate-100 font-sans selection:bg-primary selection:text-white">
-      <div className="max-w-md mx-auto min-h-screen relative shadow-2xl bg-dark">
+      <div className="w-full mx-auto min-h-screen relative bg-dark">
         {renderContent()}
 
-        {/* Bottom Navigation */}
-        <div className="fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-sm border-t border-slate-700 flex justify-around items-center py-3 px-2 z-50 md:max-w-md md:mx-auto">
+        <div className="fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-slate-700/50 flex justify-around items-center py-3 px-2 z-50 shadow-[0_-5px_15px_rgba(0,0,0,0.3)]">
           <NavBtn 
             isActive={activeTab === 'dashboard'} 
             onClick={() => setActiveTab('dashboard')} 
@@ -107,12 +146,6 @@ const App: React.FC = () => {
             onClick={() => setActiveTab('exercises')} 
             icon={<Dumbbell size={20} />} 
             label={t('nav_exercises')} 
-          />
-           <NavBtn 
-            isActive={activeTab === 'measurements'} 
-            onClick={() => setActiveTab('measurements')} 
-            icon={<Scale size={20} />} 
-            label={t('nav_measurements')} 
           />
           <NavBtn 
             isActive={activeTab === 'stats'} 
@@ -135,10 +168,10 @@ const App: React.FC = () => {
 const NavBtn = ({ isActive, onClick, icon, label }: { isActive: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
   <button 
     onClick={onClick} 
-    className={`flex flex-col items-center gap-1 transition-colors duration-200 ${isActive ? 'text-primary' : 'text-gray-500 hover:text-gray-300'}`}
+    className={`flex flex-col items-center gap-1 transition-all duration-300 ${isActive ? 'text-primary scale-110' : 'text-gray-500 hover:text-gray-300'}`}
   >
     {icon}
-    <span className="text-[10px] font-medium">{label}</span>
+    <span className={`text-[10px] font-bold ${isActive ? 'opacity-100' : 'opacity-70'}`}>{label}</span>
   </button>
 );
 

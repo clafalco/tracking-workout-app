@@ -1,9 +1,10 @@
+
 import React, { useRef, useState, useEffect } from 'react';
-import { getAllData, restoreData, FullBackupData, saveTheme, getTheme, saveWakeLockEnabled, getWakeLockEnabled, getVolume, saveVolume, getLanguage, saveLanguage, loadDefaultExercises } from '../services/storageService';
-import { t, getGuideContent } from '../services/translationService';
-import { playTimerSound } from '../services/audioService'; // Import shared audio service
-import { ThemeType, Language } from '../types';
-import { Download, RefreshCw, Database, Key, Eye, EyeOff, Save, Check, Palette, Smartphone, Zap, Sun, Volume2, Globe, HelpCircle, X, ShieldCheck, BookOpen, Library } from 'lucide-react';
+import { getAllData, restoreData, FullBackupData, saveTheme, getTheme, saveWakeLockEnabled, getWakeLockEnabled, getVolume, saveVolume, getLanguage, saveLanguage, loadDefaultExercises, getCustomColors, saveCustomColors, CustomColors, getProfile, saveProfile } from '../services/storageService';
+import { t } from '../services/translationService';
+import { playTimerSound, unlockAudioContext } from '../services/audioService';
+import { ThemeType, Language, UserProfile, Gender } from '../types';
+import { RefreshCw, Database, Smartphone, Zap, Volume2, Globe, X, ShieldCheck, Library, Share2, Sparkles, ExternalLink, CheckCircle, Palette, Pipette, User, Calendar } from 'lucide-react';
 
 interface SettingsProps {
     onLanguageChange?: () => void;
@@ -11,395 +12,352 @@ interface SettingsProps {
 
 const Settings: React.FC<SettingsProps> = ({ onLanguageChange }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [restoreMode, setRestoreMode] = useState<'merge' | 'overwrite'>('merge');
   
-  // API Key State
-  const [apiKey, setApiKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
-  const [keySaved, setKeySaved] = useState(false);
-
-  // Theme & Settings State
   const [currentTheme, setCurrentTheme] = useState<ThemeType>('iron');
+  const [customColors, setCustomColorsState] = useState<CustomColors>({ primary: '#6366f1', secondary: '#10b981' });
   const [wakeLockEnabled, setWakeLockEnabled] = useState(true);
   const [volume, setVolume] = useState(1.0);
   const [language, setLanguage] = useState<Language>('it');
 
-  // Import Feedback State
+  // Profile State
+  const [profile, setProfile] = useState<UserProfile>({ gender: 'M' });
+
+  // AI State
+  const [isAiKeySelected, setIsAiKeySelected] = useState<boolean>(false);
+  const [isCheckingKey, setIsCheckingKey] = useState(true);
   const [importMsg, setImportMsg] = useState<string | null>(null);
 
-  // Guide Modal
-  const [showGuide, setShowGuide] = useState(false);
-
   useEffect(() => {
-    // Carica dati salvati
-    const savedKey = localStorage.getItem('iron_track_api_key');
-    if (savedKey) setApiKey(savedKey);
-    
     setCurrentTheme(getTheme());
+    const colors = getCustomColors();
+    if (colors) setCustomColorsState(colors);
     setWakeLockEnabled(getWakeLockEnabled());
     setVolume(getVolume());
     setLanguage(getLanguage());
+    setProfile(getProfile());
+    
+    const checkKeyStatus = async () => {
+        setIsCheckingKey(true);
+        try {
+            // @ts-ignore
+            if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+                // @ts-ignore
+                const hasKey = await window.aistudio.hasSelectedApiKey();
+                setIsAiKeySelected(hasKey);
+            } else if (process.env.API_KEY) {
+                setIsAiKeySelected(true);
+            }
+        } catch (e) {
+            console.warn("Key check failed", e);
+        } finally {
+            setIsCheckingKey(false);
+        }
+    };
+    checkKeyStatus();
   }, []);
 
-  const handleSaveKey = () => {
-      localStorage.setItem('iron_track_api_key', apiKey.trim());
-      setKeySaved(true);
-      setTimeout(() => setKeySaved(false), 2000);
+  const handleProfileUpdate = (updates: Partial<UserProfile>) => {
+      const newProfile = { ...profile, ...updates };
+      setProfile(newProfile);
+      saveProfile(newProfile);
+  };
+
+  const calculateAge = (birthDate?: string) => {
+      if (!birthDate) return null;
+      const today = new Date();
+      const birth = new Date(birthDate);
+      let age = today.getFullYear() - birth.getFullYear();
+      const m = today.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+      return age;
+  };
+
+  const handleOpenSelectKey = async () => {
+    try {
+        // @ts-ignore
+        if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+            // @ts-ignore
+            await window.aistudio.openSelectKey();
+            setIsAiKeySelected(true);
+            setImportMsg("AI Pronta!");
+        } else {
+            setIsAiKeySelected(true);
+            setImportMsg("AI Attivata");
+        }
+    } catch (e) {
+        setImportMsg("Errore attivazione.");
+    } finally {
+        setTimeout(() => setImportMsg(null), 3000);
+    }
   };
 
   const handleThemeChange = (theme: ThemeType) => {
-      saveTheme(theme);
-      setCurrentTheme(theme);
+    saveTheme(theme);
+    setCurrentTheme(theme);
   };
 
-  const handleWakeLockChange = (enabled: boolean) => {
-      saveWakeLockEnabled(enabled);
-      setWakeLockEnabled(enabled);
+  const handleCustomColorChange = (key: keyof CustomColors, value: string) => {
+    const newColors = { ...customColors, [key]: value };
+    setCustomColorsState(newColors);
+    saveCustomColors(newColors);
   };
 
-  const handleVolumeChange = (newVolume: number) => {
-      setVolume(newVolume);
-      saveVolume(newVolume);
-  };
-  
   const handleLanguageChange = (lang: Language) => {
       saveLanguage(lang);
       setLanguage(lang);
-      
-      // Invece di ricaricare la pagina (che causa errori 404),
-      // chiamiamo la funzione passata da App.tsx per ridisegnare l'interfaccia
-      if (onLanguageChange) {
-          onLanguageChange();
-      }
+      if (onLanguageChange) onLanguageChange();
   };
 
   const handleTestSound = () => {
-      // Usa il servizio centralizzato per testare il suono
+      unlockAudioContext();
       playTimerSound('test', volume);
-  }
+  };
   
   const handleLoadDefaults = () => {
       const count = loadDefaultExercises();
-      setImportMsg(`Fatto! Aggiunti ${count} nuovi esercizi.`);
+      setImportMsg(`Aggiunti ${count} esercizi.`);
       setTimeout(() => setImportMsg(null), 4000);
   };
 
-  const handleDownloadBackup = () => {
+  const handleDownloadBackup = async () => {
     const data = getAllData();
     const jsonString = JSON.stringify(data, null, 2);
+    const fileName = `irontrack_backup_${new Date().toISOString().split('T')[0]}.json`;
     const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    
     const link = document.createElement('a');
-    const date = new Date().toISOString().split('T')[0];
     link.href = url;
-    link.download = `irontrack_backup_${date}.json`;
+    link.download = fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  const handleUploadClick = (mode: 'merge' | 'overwrite') => {
-      setRestoreMode(mode);
-      fileInputRef.current?.click();
-  };
-
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const json = e.target?.result as string;
-        const data = JSON.parse(json) as FullBackupData;
-        
-        // Simple validation
-        if (!data.timestamp || (!data.exercises && !data.logs)) {
-            throw new Error("Formato file non valido");
-        }
-        
-        // Eseguiamo direttamente il restore senza confirm nativo per evitare problemi mobile
-        restoreData(data, restoreMode);
-        setImportMsg(restoreMode === 'merge' ? "Sync Completata!" : "Ripristino Completato!");
-        setTimeout(() => setImportMsg(null), 3000);
-        
-        if (onLanguageChange) onLanguageChange();
-        
-      } catch (err) {
-        console.error(err);
-        setImportMsg("Errore nel file di backup.");
-        setTimeout(() => setImportMsg(null), 3000);
-      }
-    };
-    reader.readAsText(file);
-    // Reset input
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    URL.revokeObjectURL(url);
   };
 
   return (
     <div className="p-4 pb-24">
-      <h2 className="text-2xl font-bold text-white mb-6">{t('settings_title')}</h2>
+      <h2 className="text-2xl font-bold text-white mb-6 uppercase tracking-tight">{t('settings_title')}</h2>
 
       <div className="space-y-6">
-
-        {/* Language Section */}
-        <div className="bg-surface p-6 rounded-xl border border-slate-700 shadow-lg">
-            <div className="flex items-center gap-3 mb-4 text-emerald-400">
-                <Globe size={24} />
-                <h3 className="text-lg font-bold text-white">{t('settings_lang')}</h3>
+        
+        {/* Profile Section */}
+        <div className="bg-surface p-6 rounded-[2rem] border border-slate-700 shadow-lg">
+            <div className="flex items-center gap-3 mb-6 text-primary">
+                <User size={24} />
+                <h3 className="text-lg font-bold text-white uppercase tracking-tight">Profilo Personale</h3>
             </div>
             
-            <div className="grid grid-cols-2 gap-3 mb-4">
-                {(['it', 'en', 'fr', 'de'] as Language[]).map((lang) => (
-                    <button
-                        key={lang}
-                        onClick={() => handleLanguageChange(lang)}
-                        className={`p-3 rounded-xl border border-slate-600 font-bold transition-all uppercase ${language === lang ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-dark text-gray-400 hover:bg-slate-700'}`}
+            <div className="space-y-5">
+                <div>
+                    <label className="block text-[10px] text-gray-500 uppercase font-black mb-2 tracking-widest px-1">Data di Nascita</label>
+                    <div className="relative">
+                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                        <input 
+                            type="date" 
+                            value={profile.birthDate || ''} 
+                            onChange={(e) => handleProfileUpdate({ birthDate: e.target.value })}
+                            className="w-full bg-dark border border-slate-700 pl-12 p-4 rounded-2xl text-white font-bold outline-none focus:border-primary"
+                        />
+                    </div>
+                    {profile.birthDate && (
+                        <p className="text-[10px] text-emerald-400 font-black uppercase mt-2 px-1">Età: {calculateAge(profile.birthDate)} anni</p>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-[10px] text-gray-500 uppercase font-black mb-2 tracking-widest px-1">Genere</label>
+                        <select 
+                            value={profile.gender || 'M'} 
+                            onChange={(e) => handleProfileUpdate({ gender: e.target.value as Gender })}
+                            className="w-full bg-dark border border-slate-700 p-4 rounded-2xl text-white font-bold outline-none focus:border-primary appearance-none"
+                        >
+                            <option value="M">Maschio</option>
+                            <option value="F">Femmina</option>
+                            <option value="O">Altro</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-[10px] text-gray-500 uppercase font-black mb-2 tracking-widest px-1">Altezza (cm)</label>
+                        <input 
+                            type="number" 
+                            placeholder="Es. 175"
+                            value={profile.height || ''} 
+                            onChange={(e) => handleProfileUpdate({ height: parseInt(e.target.value) || undefined })}
+                            className="w-full bg-dark border border-slate-700 p-4 rounded-2xl text-white font-bold outline-none focus:border-primary"
+                        />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {/* Appearance Section */}
+        <div className="bg-surface p-6 rounded-[2rem] border border-slate-700 shadow-lg">
+            <div className="flex items-center gap-3 mb-6 text-primary">
+                <Palette size={24} />
+                <h3 className="text-lg font-bold text-white uppercase tracking-tight">{t('settings_theme')}</h3>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3 mb-6">
+                {(['iron', 'ocean', 'fire', 'light'] as ThemeType[]).map((tType) => (
+                    <button 
+                        key={tType} 
+                        onClick={() => handleThemeChange(tType)}
+                        className={`p-4 rounded-2xl border font-black uppercase text-[10px] tracking-widest transition-all ${currentTheme === tType ? 'bg-primary text-white border-primary shadow-lg shadow-primary/20' : 'bg-dark border-slate-800 text-gray-500'}`}
                     >
-                        {lang === 'it' ? 'Italiano' : lang === 'en' ? 'English' : lang === 'fr' ? 'Français' : 'Deutsch'}
+                        {tType}
                     </button>
                 ))}
             </div>
 
-            <button 
-                onClick={() => setShowGuide(true)}
-                className="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl flex items-center justify-center gap-2 font-medium transition-colors border border-slate-600"
-            >
-                <HelpCircle size={20} /> {t('settings_guide_btn')}
-            </button>
+            <div className="space-y-4 pt-4 border-t border-slate-700/50">
+                <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-2">Colori Personalizzati</p>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="flex items-center gap-2 text-[9px] text-gray-400 font-bold uppercase mb-2">
+                            <Pipette size={12} className="text-primary" /> Primario
+                        </label>
+                        <div className="flex items-center gap-3 bg-dark p-2 rounded-xl border border-slate-800">
+                            <input 
+                                type="color" 
+                                value={customColors.primary} 
+                                onChange={(e) => handleCustomColorChange('primary', e.target.value)}
+                                className="w-8 h-8 rounded-lg bg-transparent border-none cursor-pointer"
+                            />
+                            <span className="text-[10px] font-mono text-gray-300 uppercase">{customColors.primary}</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="flex items-center gap-2 text-[9px] text-gray-400 font-bold uppercase mb-2">
+                            <Pipette size={12} className="text-secondary" /> Secondario
+                        </label>
+                        <div className="flex items-center gap-3 bg-dark p-2 rounded-xl border border-slate-800">
+                            <input 
+                                type="color" 
+                                value={customColors.secondary} 
+                                onChange={(e) => handleCustomColorChange('secondary', e.target.value)}
+                                className="w-8 h-8 rounded-lg bg-transparent border-none cursor-pointer"
+                            />
+                            <span className="text-[10px] font-mono text-gray-300 uppercase">{customColors.secondary}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        {/* Theme Section */}
-        <div className="bg-surface p-6 rounded-xl border border-slate-700 shadow-lg">
-            <div className="flex items-center gap-3 mb-4 text-primary">
-                <Palette size={24} />
-                <h3 className="text-lg font-bold text-white">{t('settings_theme')}</h3>
+        {/* AI Features Section */}
+        <div className="bg-gradient-to-br from-indigo-900/30 to-surface p-6 rounded-[2rem] border border-indigo-500/20 shadow-lg relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-5">
+                <Sparkles size={120} />
             </div>
             
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <button 
-                    onClick={() => handleThemeChange('iron')}
-                    className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${currentTheme === 'iron' ? 'border-indigo-500 bg-indigo-500/20' : 'border-slate-700 hover:border-slate-600'}`}
-                >
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-emerald-500"></div>
-                    <span className="text-xs font-bold text-gray-300">Iron (Default)</span>
-                </button>
-                <button 
-                    onClick={() => handleThemeChange('ocean')}
-                    className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${currentTheme === 'ocean' ? 'border-blue-500 bg-blue-500/20' : 'border-slate-700 hover:border-slate-600'}`}
-                >
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400"></div>
-                    <span className="text-xs font-bold text-gray-300">Ocean</span>
-                </button>
-                <button 
-                    onClick={() => handleThemeChange('fire')}
-                    className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${currentTheme === 'fire' ? 'border-red-500 bg-red-500/20' : 'border-slate-700 hover:border-slate-600'}`}
-                >
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-orange-500"></div>
-                    <span className="text-xs font-bold text-gray-300">Fire</span>
-                </button>
-                 <button 
-                    onClick={() => handleThemeChange('light')}
-                    className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${currentTheme === 'light' ? 'border-indigo-600 bg-slate-100' : 'border-slate-700 hover:border-slate-600'}`}
-                >
-                    <div className="w-8 h-8 rounded-full bg-white border border-gray-300 flex items-center justify-center">
-                        <Sun size={16} className="text-orange-500" />
-                    </div>
-                    <span className="text-xs font-bold text-gray-300">Light</span>
-                </button>
+            <div className="flex items-center gap-3 mb-2 text-indigo-400">
+                <Sparkles size={24} />
+                <h3 className="text-lg font-bold text-white uppercase tracking-tight">IronTrack Pro AI</h3>
             </div>
+            
+            <p className="text-[10px] text-slate-400 mb-6 font-bold uppercase tracking-wider leading-relaxed">
+                Analisi avanzata delle performance tramite Gemini 3 Pro. È necessario selezionare una chiave API da un progetto Google Cloud con fatturazione attiva.
+            </p>
+            
+            <div className="space-y-3 relative z-10">
+                <button 
+                    onClick={handleOpenSelectKey}
+                    className={`w-full py-4 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 ${isAiKeySelected ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'}`}
+                >
+                    {isCheckingKey ? <RefreshCw size={18} className="animate-spin" /> : isAiKeySelected ? <> <CheckCircle size={18} /> AI Attiva </> : <> <ShieldCheck size={18} /> Attiva Funzioni AI </>}
+                </button>
+                <a 
+                    href="https://ai.google.dev/gemini-api/docs/billing" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="w-full bg-slate-800/50 text-slate-400 py-3 rounded-xl flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-widest border border-slate-700/50 hover:text-white transition-colors"
+                >
+                    <ExternalLink size={12} /> Guida Fatturazione API
+                </a>
+            </div>
+            {importMsg && <div className="mt-3 text-center text-emerald-400 text-[10px] font-black uppercase">{importMsg}</div>}
         </div>
 
         {/* Display & Audio Options */}
-        <div className="bg-surface p-6 rounded-xl border border-slate-700 shadow-lg">
-            <div className="flex items-center gap-3 mb-4 text-primary">
+        <div className="bg-surface p-6 rounded-[2rem] border border-slate-700 shadow-lg">
+            <div className="flex items-center gap-3 mb-6 text-primary">
                 <Smartphone size={24} />
-                <h3 className="text-lg font-bold text-white">{t('settings_device')}</h3>
+                <h3 className="text-lg font-bold text-white uppercase tracking-tight">{t('settings_device')}</h3>
             </div>
-            
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
-                    <div>
-                        <div className="text-white font-medium flex items-center gap-2">
-                            <Zap size={16} className={wakeLockEnabled ? "text-yellow-400" : "text-gray-600"}/> 
-                            Screen Always On
-                        </div>
+                    <div className="text-white font-black uppercase text-xs tracking-widest flex items-center gap-2">
+                        <Zap size={16} className={wakeLockEnabled ? "text-yellow-400" : "text-gray-600"}/> Schermo Acceso
                     </div>
-                    <button 
-                        onClick={() => handleWakeLockChange(!wakeLockEnabled)}
-                        className={`w-12 h-7 rounded-full transition-colors relative ${wakeLockEnabled ? 'bg-primary' : 'bg-slate-700'}`}
-                    >
-                        <div className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-transform ${wakeLockEnabled ? 'left-6' : 'left-1'}`}></div>
+                    <button onClick={() => { saveWakeLockEnabled(!wakeLockEnabled); setWakeLockEnabled(!wakeLockEnabled); }} className={`w-12 h-7 rounded-full transition-all relative ${wakeLockEnabled ? 'bg-primary shadow-lg shadow-primary/20' : 'bg-slate-700'}`}>
+                        <div className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${wakeLockEnabled ? 'left-6' : 'left-1'}`}></div>
                     </button>
                 </div>
-
-                <div className="border-t border-slate-700 pt-4">
-                    <div className="text-white font-medium flex items-center gap-2 mb-3">
-                        <Volume2 size={16} className="text-primary"/> 
-                        Volume
+                <div className="border-t border-slate-700/50 pt-6">
+                    <div className="flex justify-between items-center mb-4">
+                         <div className="text-white font-black uppercase text-xs tracking-widest flex items-center gap-2">
+                            <Volume2 size={16} className="text-primary"/> Volume Suoni
+                        </div>
                     </div>
                     <div className="flex items-center gap-4">
-                        <input 
-                            type="range" 
-                            min="0" 
-                            max="1" 
-                            step="0.1" 
-                            value={volume}
-                            onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                            className="w-full accent-primary h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
-                        />
-                        <button 
-                            onClick={handleTestSound}
-                            className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded text-white"
-                        >
-                            Test
-                        </button>
+                        <input type="range" min="0" max="1" step="0.1" value={volume} onChange={(e) => { const v = parseFloat(e.target.value); setVolume(v); saveVolume(v); }} className="w-full accent-primary h-1.5 bg-dark rounded-full appearance-none cursor-pointer" />
+                        <button onClick={handleTestSound} className="bg-dark px-4 py-2 rounded-xl text-[10px] font-black text-white uppercase border border-slate-700">Test</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        {/* API Key Section */}
-        <div className="bg-surface p-6 rounded-xl border border-slate-700 shadow-lg">
-            <div className="flex items-center gap-3 mb-4 text-purple-400">
-                <Key size={24} />
-                <h3 className="text-lg font-bold text-white">{t('settings_api')}</h3>
+        {/* Language Selection */}
+        <div className="bg-surface p-6 rounded-[2rem] border border-slate-700 shadow-lg">
+            <div className="flex items-center gap-3 mb-6 text-emerald-400">
+                <Globe size={24} />
+                <h3 className="text-lg font-bold text-white uppercase tracking-tight">{t('settings_lang')}</h3>
             </div>
-            <p className="text-sm text-gray-400 mb-4">
-                Inserisci la tua Chiave API di Google Gemini per abilitare i consigli intelligenti e la creazione automatica delle routine.
-                <br/><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary underline">Ottieni una chiave qui</a>.
-            </p>
-            
-            <div className="relative flex items-center gap-2">
-                <input 
-                    type={showKey ? "text" : "password"}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="API Key..."
-                    className="w-full bg-dark border border-slate-600 p-3 rounded-xl text-white focus:outline-none focus:border-primary pr-10"
-                />
-                <button 
-                    onClick={() => setShowKey(!showKey)}
-                    className="absolute right-14 text-gray-400 hover:text-white"
-                >
-                    {showKey ? <EyeOff size={20}/> : <Eye size={20}/>}
-                </button>
-                <button 
-                    onClick={handleSaveKey}
-                    className={`p-3 rounded-xl flex items-center justify-center transition-colors ${keySaved ? 'bg-emerald-500 text-white' : 'bg-primary text-white hover:bg-indigo-600'}`}
-                >
-                    {keySaved ? <Check size={20}/> : <Save size={20}/>}
-                </button>
+            <div className="grid grid-cols-2 gap-3">
+                {(['it', 'en'] as Language[]).map((lang) => (
+                    <button key={lang} onClick={() => handleLanguageChange(lang)} className={`p-4 rounded-2xl border font-black uppercase text-xs tracking-widest transition-all ${language === lang ? 'bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/20' : 'bg-dark border-slate-700 text-gray-500'}`}>
+                        {lang === 'it' ? 'Italiano' : 'English'}
+                    </button>
+                ))}
             </div>
         </div>
         
         {/* Backup Section */}
-        <div className="bg-surface p-6 rounded-xl border border-slate-700 shadow-lg">
-            <div className="flex items-center gap-3 mb-4 text-primary">
-                <ShieldCheck size={24} />
-                <h3 className="text-lg font-bold text-white">{t('settings_sync')}</h3>
+        <div className="bg-surface p-6 rounded-[2rem] border border-slate-700 shadow-lg">
+            <div className="flex items-center gap-3 mb-6 text-primary">
+                <Database size={24} />
+                <h3 className="text-lg font-bold text-white uppercase tracking-tight">Dati</h3>
             </div>
-            
             <div className="space-y-4">
-                {/* NEW: Load Defaults Button */}
-                <div className="flex flex-col gap-2">
-                    <button 
-                        onClick={handleLoadDefaults}
-                        className="w-full bg-slate-700 hover:bg-slate-600 text-gray-200 py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-colors text-sm border border-slate-600"
-                    >
-                        <Library size={18} />
-                        Carica Database Esercizi (Default)
+                <button onClick={handleLoadDefaults} className="w-full bg-slate-800 text-gray-300 py-4 rounded-2xl flex items-center justify-center gap-3 font-black uppercase text-[10px] tracking-widest border border-slate-700"><Library size={18} /> Carica Default</button>
+                <div className="grid grid-cols-2 gap-3">
+                    <button onClick={handleDownloadBackup} className="bg-dark text-white py-4 rounded-2xl flex flex-col items-center gap-2 border border-slate-700">
+                        <Share2 size={18} className="text-primary"/>
+                        <span className="text-[9px] font-black uppercase tracking-widest">Esporta</span>
                     </button>
-                    {importMsg && (
-                        <div className="text-center text-emerald-400 text-sm font-bold bg-emerald-500/10 py-2 rounded-lg border border-emerald-500/20 animate-in fade-in slide-in-from-top-1">
-                            {importMsg}
-                        </div>
-                    )}
+                    <button onClick={() => fileInputRef.current?.click()} className="bg-dark text-white py-4 rounded-2xl flex flex-col items-center gap-2 border border-slate-700">
+                        <RefreshCw size={18} className="text-emerald-500"/>
+                        <span className="text-[9px] font-black uppercase tracking-widest">Importa</span>
+                    </button>
                 </div>
-
-                <button 
-                    onClick={handleDownloadBackup}
-                    className="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-colors font-medium border border-slate-600"
-                >
-                    <Download size={20} className="text-emerald-400"/>
-                    Backup (Export)
-                </button>
-
-                <div className="relative">
-                    <input 
-                        type="file" 
-                        accept=".json" 
-                        onChange={handleFileChange}
-                        ref={fileInputRef}
-                        className="hidden"
-                    />
-                    
-                    <div className="grid grid-cols-1 gap-3 mt-6 pt-6 border-t border-slate-700">
-                        <button 
-                            onClick={() => handleUploadClick('merge')}
-                            className="w-full bg-primary hover:bg-indigo-600 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-colors font-medium shadow-lg shadow-primary/20"
-                        >
-                            <RefreshCw size={20} />
-                            Sync (Merge)
-                        </button>
-                        
-                        <button 
-                            onClick={() => handleUploadClick('overwrite')}
-                            className="w-full bg-surface border border-red-500/30 text-red-400 hover:bg-red-500/10 py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-colors text-sm"
-                        >
-                            <Database size={16} />
-                            Restore (Overwrite)
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        {/* Info Section */}
-        <div className="bg-surface p-6 rounded-xl border border-slate-700">
-            <h3 className="text-lg font-bold text-white mb-2">IronTrack Pro</h3>
-            <p className="text-sm text-gray-400">Versione 1.5.0</p>
-            <div className="mt-4 text-xs text-gray-500">
-                PWA Offline-First.
-                <br/>Build Date: {new Date().toLocaleDateString()}
+                <input type="file" accept=".json" onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (rev) => {
+                      try {
+                        const data = JSON.parse(rev.target?.result as string);
+                        restoreData(data, 'merge');
+                        setImportMsg("Dati Uniti!");
+                        setTimeout(() => setImportMsg(null), 3000);
+                      } catch (err) { setImportMsg("Errore File"); }
+                    };
+                    reader.readAsText(file);
+                }} ref={fileInputRef} className="hidden" />
             </div>
         </div>
       </div>
-
-      {/* USER GUIDE MODAL */}
-      {showGuide && (
-          <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-              <div className="bg-surface p-6 rounded-2xl w-full max-w-lg border border-slate-700 shadow-2xl relative max-h-[85vh] overflow-y-auto">
-                  <div className="flex justify-between items-center mb-6 sticky top-0 bg-surface z-10 py-2 border-b border-slate-700">
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                          <BookOpen size={24} className="text-primary"/> {t('settings_guide_title')}
-                      </h3>
-                      <button onClick={() => setShowGuide(false)} className="text-gray-400 hover:text-white p-2">
-                          <X size={24}/>
-                      </button>
-                  </div>
-                  
-                  <div className="space-y-6">
-                      {getGuideContent().map((section, index) => (
-                          <div key={index} className="space-y-2">
-                              <h4 className="text-lg font-bold text-emerald-400">{section.title}</h4>
-                              <p className="text-gray-300 text-sm leading-relaxed">{section.text}</p>
-                          </div>
-                      ))}
-                  </div>
-
-                  <div className="mt-8 pt-4 border-t border-slate-700">
-                    <button 
-                        onClick={() => setShowGuide(false)}
-                        className="w-full bg-primary py-3 rounded-xl text-white font-bold"
-                    >
-                        Chiudi / Close
-                    </button>
-                  </div>
-              </div>
-          </div>
-      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 
-import { Exercise, Routine, WorkoutLog, MuscleGroup, ExerciseType, BodyMeasurement, ThemeType, RoutineTemplate, Language, RoutineDay } from '../types';
+import { Exercise, Routine, WorkoutLog, MuscleGroup, ExerciseType, BodyMeasurement, ThemeType, RoutineTemplate, Language, RoutineDay, UserProfile, CustomMetricConfig } from '../types';
 import { DEFAULT_EXERCISES } from './defaultData';
 
 const EXERCISE_KEY = 'iron_track_exercises';
@@ -8,25 +8,59 @@ const TEMPLATE_KEY = 'iron_track_templates';
 const LOG_KEY = 'iron_track_logs';
 const MEASUREMENTS_KEY = 'iron_track_measurements';
 const THEME_KEY = 'iron_track_theme';
+const CUSTOM_COLORS_KEY = 'iron_track_custom_colors';
 const WAKE_LOCK_KEY = 'iron_track_wake_lock';
 const VOLUME_KEY = 'iron_track_volume';
 const LANGUAGE_KEY = 'iron_track_language';
-const ACTIVE_SESSION_KEY = 'iron_track_active_session'; // New key for session persistence
+const ACTIVE_SESSION_KEY = 'iron_track_active_session';
+const PROFILE_KEY = 'iron_track_profile';
+const CUSTOM_METRICS_KEY = 'iron_track_custom_metrics';
 
-// Initial seed data
-const INITIAL_EXERCISES: Exercise[] = [
-  { id: '1', name: 'Panca Piana', muscleGroup: MuscleGroup.Chest, type: ExerciseType.Weighted },
-  { id: '2', name: 'Squat', muscleGroup: MuscleGroup.Legs, type: ExerciseType.Weighted },
-  { id: '3', name: 'Stacco da Terra', muscleGroup: MuscleGroup.Back, type: ExerciseType.Weighted },
-  { id: '4', name: 'Military Press', muscleGroup: MuscleGroup.Shoulders, type: ExerciseType.Weighted },
-  { id: '5', name: 'Tapis Roulant', muscleGroup: MuscleGroup.Cardio, type: ExerciseType.Duration },
-];
+export interface CustomColors {
+  primary: string;
+  secondary: string;
+}
+
+// Add FullBackupData interface for backup/restore operations
+export interface FullBackupData {
+  exercises: Exercise[];
+  routines: Routine[];
+  templates: RoutineTemplate[];
+  logs: WorkoutLog[];
+  measurements: BodyMeasurement[];
+  profile: UserProfile;
+  customMetrics: CustomMetricConfig[];
+  timestamp: string;
+}
+
+export const getProfile = (): UserProfile => {
+  const stored = localStorage.getItem(PROFILE_KEY);
+  return stored ? JSON.parse(stored) : { birthDate: undefined, gender: 'M', height: undefined };
+};
+
+export const saveProfile = (profile: UserProfile) => {
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+};
+
+export const getCustomMetricConfigs = (): CustomMetricConfig[] => {
+  const stored = localStorage.getItem(CUSTOM_METRICS_KEY);
+  return stored ? JSON.parse(stored) : [];
+};
+
+export const saveCustomMetricConfigs = (configs: CustomMetricConfig[]) => {
+  localStorage.setItem(CUSTOM_METRICS_KEY, JSON.stringify(configs));
+};
 
 export const getExercises = (): Exercise[] => {
   const stored = localStorage.getItem(EXERCISE_KEY);
   if (!stored) {
-    localStorage.setItem(EXERCISE_KEY, JSON.stringify(INITIAL_EXERCISES));
-    return INITIAL_EXERCISES;
+    const initial = [
+      { id: '1', name: 'Panca Piana', muscleGroup: MuscleGroup.Chest, type: ExerciseType.Weighted },
+      { id: '2', name: 'Squat', muscleGroup: MuscleGroup.Legs, type: ExerciseType.Weighted },
+      { id: '3', name: 'Stacco da Terra', muscleGroup: MuscleGroup.Back, type: ExerciseType.Weighted },
+    ];
+    localStorage.setItem(EXERCISE_KEY, JSON.stringify(initial));
+    return initial;
   }
   return JSON.parse(stored);
 };
@@ -36,27 +70,11 @@ export const saveExercises = (exercises: Exercise[]) => {
 };
 
 export const deleteExercise = (id: string): Exercise[] => {
-  const exercises = getExercises();
-  const updated = exercises.filter(e => e.id !== id);
+  const current = getExercises();
+  const updated = current.filter(e => e.id !== id);
   saveExercises(updated);
   return updated;
 };
-
-// --- NEW FUNCTION: LOAD DEFAULTS ---
-export const loadDefaultExercises = (): number => {
-    const current = getExercises();
-    // Create a set of lowercased trimmed names to prevent duplicates
-    const currentNames = new Set(current.map(e => e.name.trim().toLowerCase()));
-    
-    const newToAdd = DEFAULT_EXERCISES.filter(def => !currentNames.has(def.name.trim().toLowerCase()));
-    
-    if (newToAdd.length === 0) return 0;
-
-    const updated = [...current, ...newToAdd];
-    saveExercises(updated);
-    return newToAdd.length;
-};
-// -----------------------------------
 
 export const getRoutines = (): Routine[] => {
   const stored = localStorage.getItem(ROUTINE_KEY);
@@ -103,33 +121,19 @@ export const saveMeasurements = (measurements: BodyMeasurement[]) => {
 
 export const deleteMeasurement = (id: string): BodyMeasurement[] => {
   const current = getMeasurements();
-  // Convert both to string to ensure safe comparison regardless of how it was stored
   const updated = current.filter(m => String(m.id) !== String(id));
   saveMeasurements(updated);
   return updated;
 };
 
-// --- ACTIVE SESSION PERSISTENCE ---
 export interface ActiveSessionData {
     log: WorkoutLog;
     activeRoutineDay: RoutineDay;
     startTime: number;
     routineId?: string;
     dayId?: string;
-    activeTimer?: {
-        exIndex: number;
-        setIndex: number;
-        initialTime: number;
-        targetEndTime: number | null; // If running, this is the timestamp when it ends
-        remainingTime: number | null; // If paused, this is what's left
-        isRunning: boolean;
-    } | null;
-    restTimer?: {
-        isActive: boolean;
-        targetEndTime: number | null;
-        remainingTime: number | null;
-        totalTime: number;
-    };
+    activeTimer?: any;
+    restTimer?: any;
 }
 
 export const saveActiveSession = (data: ActiveSessionData) => {
@@ -144,9 +148,6 @@ export const getActiveSession = (): ActiveSessionData | null => {
 export const clearActiveSession = () => {
     localStorage.removeItem(ACTIVE_SESSION_KEY);
 };
-// ----------------------------------
-
-// --- SETTINGS (Theme, Wake Lock, Volume, Language) ---
 
 export const getTheme = (): ThemeType => {
   return (localStorage.getItem(THEME_KEY) as ThemeType) || 'iron';
@@ -157,50 +158,52 @@ export const saveTheme = (theme: ThemeType) => {
   applyTheme(theme);
 };
 
+export const getCustomColors = (): CustomColors | null => {
+  const stored = localStorage.getItem(CUSTOM_COLORS_KEY);
+  return stored ? JSON.parse(stored) : null;
+};
+
+export const saveCustomColors = (colors: CustomColors) => {
+  localStorage.setItem(CUSTOM_COLORS_KEY, JSON.stringify(colors));
+  applyTheme(getTheme());
+};
+
 export const applyTheme = (theme: ThemeType) => {
     const root = document.documentElement;
-    
-    // RESET DEFAULT DARK VARS FIRST
-    root.style.setProperty('--bg-body', '#0f172a');
-    root.style.setProperty('--bg-card', '#1e293b');
-    root.style.setProperty('--text-main', '#f8fafc');
-    root.style.setProperty('--text-muted', '#94a3b8');
-    root.style.setProperty('--border-color', '#334155');
+    root.style.setProperty('--bg-body', theme === 'light' ? '#f8fafc' : '#0f172a');
+    root.style.setProperty('--bg-card', theme === 'light' ? '#ffffff' : '#1e293b');
+    root.style.setProperty('--text-main', theme === 'light' ? '#0f172a' : '#f8fafc');
+    root.style.setProperty('--text-muted', theme === 'light' ? '#475569' : '#94a3b8');
+    root.style.setProperty('--border-color', theme === 'light' ? '#cbd5e1' : '#334155');
+
+    // Default colors based on theme
+    let primary = '#6366f1';
+    let secondary = '#10b981';
 
     if (theme === 'ocean') {
-        root.style.setProperty('--color-primary', '#3b82f6'); // Blue 500
-        root.style.setProperty('--color-secondary', '#06b6d4'); // Cyan 500
+        primary = '#3b82f6';
+        secondary = '#06b6d4';
     } else if (theme === 'fire') {
-        root.style.setProperty('--color-primary', '#ef4444'); // Red 500
-        root.style.setProperty('--color-secondary', '#f97316'); // Orange 500
+        primary = '#ef4444';
+        secondary = '#f97316';
     } else if (theme === 'light') {
-        // LIGHT THEME OVERRIDES
-        root.style.setProperty('--bg-body', '#f8fafc'); // Slate 50
-        root.style.setProperty('--bg-card', '#ffffff'); // White
-        root.style.setProperty('--text-main', '#0f172a'); // Slate 900
-        // Darker grey for muted text to ensure high contrast against white
-        root.style.setProperty('--text-muted', '#475569'); // Slate 600
-        root.style.setProperty('--border-color', '#cbd5e1'); // Slate 300
-        
-        root.style.setProperty('--color-primary', '#4f46e5'); // Indigo 600 (Darker for contrast)
-        root.style.setProperty('--color-secondary', '#059669'); // Emerald 600
-        
-        // Update meta theme color for browser bar
-        const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-        if (metaThemeColor) metaThemeColor.setAttribute('content', '#f8fafc');
-    } else {
-        // Iron (Default)
-        root.style.setProperty('--color-primary', '#6366f1'); // Indigo 500
-        root.style.setProperty('--color-secondary', '#10b981'); // Emerald 500
-        
-        const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-        if (metaThemeColor) metaThemeColor.setAttribute('content', '#0f172a');
+        primary = '#4f46e5';
+        secondary = '#059669';
     }
+
+    // Override with custom colors if they exist
+    const custom = getCustomColors();
+    if (custom) {
+        primary = custom.primary;
+        secondary = custom.secondary;
+    }
+
+    root.style.setProperty('--color-primary', primary);
+    root.style.setProperty('--color-secondary', secondary);
 };
 
 export const getWakeLockEnabled = (): boolean => {
     const stored = localStorage.getItem(WAKE_LOCK_KEY);
-    // Default to true if not set
     return stored !== null ? JSON.parse(stored) : true;
 };
 
@@ -210,7 +213,6 @@ export const saveWakeLockEnabled = (enabled: boolean) => {
 
 export const getVolume = (): number => {
     const stored = localStorage.getItem(VOLUME_KEY);
-    // Default to 1.0 (100%)
     return stored !== null ? parseFloat(stored) : 1.0;
 };
 
@@ -226,71 +228,75 @@ export const saveLanguage = (lang: Language) => {
     localStorage.setItem(LANGUAGE_KEY, lang);
 };
 
+export const loadDefaultExercises = (): number => {
+    const current = getExercises();
+    const currentNames = new Set(current.map(e => e.name.trim().toLowerCase()));
+    const newToAdd = DEFAULT_EXERCISES.filter(def => !currentNames.has(def.name.trim().toLowerCase()));
+    if (newToAdd.length === 0) return 0;
+    const updated = [...current, ...newToAdd];
+    saveExercises(updated);
+    return newToAdd.length;
+};
 
-// Funzioni per il Backup Globale
-
-export interface FullBackupData {
-    exercises: Exercise[];
-    routines: Routine[];
-    templates: RoutineTemplate[];
-    logs: WorkoutLog[];
-    measurements: BodyMeasurement[];
-    timestamp: string;
-}
-
-export const getAllData = (): FullBackupData => {
+export const getAllData = () => {
     return {
         exercises: getExercises(),
         routines: getRoutines(),
         templates: getRoutineTemplates(),
         logs: getWorkoutLogs(),
         measurements: getMeasurements(),
+        profile: getProfile(),
+        customMetrics: getCustomMetricConfigs(),
         timestamp: new Date().toISOString()
     };
 };
 
-// Helper generico per unire due array di oggetti basati su ID univoco
-const mergeLists = <T extends { id: string }>(localList: T[], importedList: T[]): T[] => {
-    const map = new Map<string, T>();
-    
-    // Prima inseriamo i locali
-    localList.forEach(item => map.set(item.id, item));
-    
-    // Poi inseriamo gli importati (sovrascrivono i locali se l'ID coincide)
-    importedList.forEach(item => map.set(item.id, item));
-    
-    return Array.from(map.values());
-};
+export const restoreData = (data: FullBackupData, mode: 'merge' | 'overwrite') => {
+  if (mode === 'overwrite') {
+    saveExercises(data.exercises || []);
+    saveRoutines(data.routines || []);
+    saveRoutineTemplates(data.templates || []);
+    localStorage.setItem(LOG_KEY, JSON.stringify(data.logs || []));
+    saveMeasurements(data.measurements || []);
+    saveProfile(data.profile || { birthDate: undefined, gender: 'M', height: undefined });
+    saveCustomMetricConfigs(data.customMetrics || []);
+  } else {
+    // Merge exercises
+    const existingExercises = getExercises();
+    const exNames = new Set(existingExercises.map(e => e.name.toLowerCase().trim()));
+    const newEx = (data.exercises || []).filter(e => !exNames.has(e.name.toLowerCase().trim()));
+    saveExercises([...existingExercises, ...newEx]);
 
-export const restoreData = (data: FullBackupData, mode: 'merge' | 'overwrite' = 'merge') => {
-    if (mode === 'overwrite') {
-        // Modalità Distruttiva: Sostituisce tutto
-        if (data.exercises) localStorage.setItem(EXERCISE_KEY, JSON.stringify(data.exercises));
-        if (data.routines) localStorage.setItem(ROUTINE_KEY, JSON.stringify(data.routines));
-        if (data.templates) localStorage.setItem(TEMPLATE_KEY, JSON.stringify(data.templates));
-        if (data.logs) localStorage.setItem(LOG_KEY, JSON.stringify(data.logs));
-        if (data.measurements) localStorage.setItem(MEASUREMENTS_KEY, JSON.stringify(data.measurements));
-    } else {
-        // Modalità Sync: Unisce i dati
-        if (data.exercises) {
-            const merged = mergeLists(getExercises(), data.exercises);
-            saveExercises(merged);
-        }
-        if (data.routines) {
-            const merged = mergeLists(getRoutines(), data.routines);
-            saveRoutines(merged);
-        }
-        if (data.templates) {
-            const merged = mergeLists(getRoutineTemplates(), data.templates);
-            saveRoutineTemplates(merged);
-        }
-        if (data.logs) {
-            const merged = mergeLists(getWorkoutLogs(), data.logs);
-            localStorage.setItem(LOG_KEY, JSON.stringify(merged));
-        }
-        if (data.measurements) {
-            const merged = mergeLists(getMeasurements(), data.measurements);
-            saveMeasurements(merged);
-        }
-    }
+    // Merge routines
+    const existingRoutines = getRoutines();
+    const routineIds = new Set(existingRoutines.map(r => r.id));
+    const newRoutines = (data.routines || []).filter(r => !routineIds.has(r.id));
+    saveRoutines([...existingRoutines, ...newRoutines]);
+
+    // Merge templates
+    const existingTemplates = getRoutineTemplates();
+    const templateIds = new Set(existingTemplates.map(t => t.id));
+    const newTemplates = (data.templates || []).filter(t => !templateIds.has(t.id));
+    saveRoutineTemplates([...existingTemplates, ...newTemplates]);
+
+    // Merge logs
+    const existingLogs = getWorkoutLogs();
+    const logIds = new Set(existingLogs.map(l => l.id));
+    const newLogs = (data.logs || []).filter(l => !logIds.has(l.id));
+    localStorage.setItem(LOG_KEY, JSON.stringify([...existingLogs, ...newLogs]));
+
+    // Merge measurements
+    const existingMeasurements = getMeasurements();
+    const measurementIds = new Set(existingMeasurements.map(m => m.id));
+    const newMeasurements = (data.measurements || []).filter(m => !measurementIds.has(m.id));
+    saveMeasurements([...existingMeasurements, ...newMeasurements]);
+    
+    // Custom Metrics
+    const existingMetrics = getCustomMetricConfigs();
+    const metricIds = new Set(existingMetrics.map(m => m.id));
+    const newMetrics = (data.customMetrics || []).filter(m => !metricIds.has(m.id));
+    saveCustomMetricConfigs([...existingMetrics, ...newMetrics]);
+
+    if (data.profile) saveProfile(data.profile);
+  }
 };
